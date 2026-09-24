@@ -12,7 +12,7 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open.mp4?v=stills2'
+const OPEN_SRC = '/chamber/open.mp4?v=stills2b'
 const POSTER = '/chamber/poster.jpg?v=v3c1'
 /** Start the back home clip this far before the front ends. */
 const HOME_XFADE_LEAD_S = 1.65
@@ -55,6 +55,7 @@ export function Chamber() {
   const [homeQ, setHomeQ] = useState('')
   const [moreOpen, setMoreOpen] = useState(false)
   const [mediaReady, setMediaReady] = useState(false)
+  const [openReady, setOpenReady] = useState(false)
   const [idleDim, setIdleDim] = useState(false)
   const [homeFront, setHomeFront] = useState(0)
   const [reducedMotion] = useState(() => prefersReducedMotion())
@@ -112,15 +113,20 @@ export function Chamber() {
       else v.addEventListener('loadedmetadata', seek, { once: true })
     }
 
-    // Preload open clip quietly.
+    // Preload open clip aggressively so the ritual does not stall on tunnel.
     const o = openRef.current
+    const onOpenReady = () => setOpenReady(true)
     if (o) {
       o.preload = 'auto'
-      o.load()
-      const onOpenReady = () => {
-        /* keep ready for hand-off */
+      try {
+        o.load()
+      } catch {
+        /* */
       }
+      if (o.readyState >= 2) setOpenReady(true)
+      o.addEventListener('canplay', onOpenReady)
       o.addEventListener('canplaythrough', onOpenReady)
+      o.addEventListener('loadeddata', onOpenReady)
     }
 
     return () => {
@@ -128,6 +134,11 @@ export function Chamber() {
       v.removeEventListener('playing', tryAmbient)
       v.removeEventListener('canplay', onReady)
       v.removeEventListener('loadeddata', onReady)
+      if (o) {
+        o.removeEventListener('canplay', onOpenReady)
+        o.removeEventListener('canplaythrough', onOpenReady)
+        o.removeEventListener('loadeddata', onOpenReady)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once on mount
   }, [])
@@ -312,28 +323,50 @@ export function Chamber() {
       return
     }
 
+    const showOpen = () => {
+      setOpenVisible(true)
+      pauseBothHomes()
+    }
+
     const beginOpenPlayback = () => {
       if (openPlayBegun.current) return
+      if (open.readyState < 2) return
       openPlayBegun.current = true
       open.loop = false
-      open.currentTime = 0
-      const playP = open.play()
-      const show = () => setOpenVisible(true)
-      if (playP && typeof playP.then === 'function') {
-        playP.then(show).catch(() => goRead())
-      } else {
-        show()
+      try {
+        open.currentTime = 0
+      } catch {
+        /* */
       }
-      window.setTimeout(() => {
-        pauseBothHomes()
-      }, 320)
+      // Always reveal once a frame exists. Never skip to reader on play() rejection
+      // (common when open.mp4 was canceled mid-buffer over a tunnel).
+      showOpen()
+      const tryPlay = () => {
+        const playP = open.play()
+        if (playP && typeof playP.then === 'function') {
+          playP.catch(() => {
+            const retry = () => {
+              void open.play().catch(() => {
+                /* keep film visible; ended / FAILSAFE still navigate */
+              })
+            }
+            if (open.readyState >= 2) window.setTimeout(retry, 180)
+            else open.addEventListener('canplay', retry, { once: true })
+          })
+        }
+      }
+      tryPlay()
     }
 
     if (open.readyState >= 2) beginOpenPlayback()
     else {
       open.addEventListener('canplay', beginOpenPlayback, { once: true })
-      open.load()
-      // If preload stalls, fall through to failsafe nav via ended/timeout.
+      try {
+        open.load()
+      } catch {
+        /* */
+      }
+      // Soft nudge if buffer arrives late; FAILSAFE still owns hard timeout.
       window.setTimeout(() => {
         if (!openPlayBegun.current && open.readyState >= 2) beginOpenPlayback()
       }, 1200)
@@ -429,7 +462,7 @@ export function Chamber() {
       />
 
       <div className={`chamber-dock${opening ? ' is-opening' : ''}`} aria-hidden={opening}>
-        <div className="chamber-row" style={{ justifyContent: 'space-between' }} onClick={stopHud}>
+        <div className="chamber-row chamber-topbar" onClick={stopHud}>
           <div className="chamber-brand">
             The <span>Immersive</span> Bible
           </div>
@@ -464,7 +497,7 @@ export function Chamber() {
                 startOpen()
               }}
             >
-              {mediaReady ? ctaLabel : 'Preparing…'}
+              {mediaReady && (openReady || opening) ? ctaLabel : 'Preparing…'}
             </button>
             <button
               type="button"

@@ -32,3 +32,9 @@ Rebuilt chamber OPEN from locked stills as `immersive-bible-assets/imagine/v3/op
 - In-app dual home `<video>` (same src, no native `loop`). When the front clip has ~1.65s left, the back clip starts at 0 and CSS-crossfades (~1.6s opacity); then the old clip is paused/reset. A fading ref guards double-triggers. Opening pauses **both** homes. `persistHomeTime` / resume use the currently visible home layer. `mediaReady` stays on the primary home `canplay`.
 - `prefers-reduced-motion` keeps a single native-looping home video.
 - Cache `HOME_SRC` / `POSTER` `?v=v3c1`. Open remains stills-v2 (`?v=stills2`).
+
+## 2026-09-24 chamber HUD + open play fix
+- HUD: frosted dark tiles under top brand/Sound row (`.chamber-topbar`) and `.chamber-room` (rgba 8,6,2 / blur 14px). Soft scrim on `.chamber-more`. Text-shadow kept as backup only. No full-screen wash. No Imagine regen.
+- Open ritual: removed `play().then(show).catch(() => goRead())`. Always show open once `readyState>=2` / canplay; retry play on rejection; navigate only on `ended` or FAILSAFE. `openReady` + aggressive preload (`canplay` / `canplaythrough`). CTA soft-prefers open buffer (Preparing until home+open ready; click still allowed once home ready).
+- Cache `OPEN_SRC ?v=stills2b`. Re-encoded live open.mp4 CRF 26 (~1.2MB, same stills-v2 content). Prior CRF23 kept under `public/chamber/backup/open-pre-stills2b-20260924.mp4`.
+- z-index unchanged: open `.is-on` at 3 above homes at 1.
