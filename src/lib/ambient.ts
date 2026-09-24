@@ -317,7 +317,7 @@ export function bindAmbientGesture() {
 export function ambientSoundLabel(): 'Sound on' | 'Sound off' | 'Tap for sound' {
   const s = getAmbientState()
   if (s.muted) return 'Sound off'
-  if (s.needsGesture || (!s.audible && !s.playing)) return 'Tap for sound'
-  if (!s.audible) return 'Tap for sound'
+  // Playing (even mid fade-in) counts as on; blocked autoplay stays Tap for sound.
+  if (s.needsGesture || !s.playing) return 'Tap for sound'
   return 'Sound on'
 }
