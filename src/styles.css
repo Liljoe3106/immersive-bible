@@ -49,16 +49,20 @@ button { font: inherit; cursor: pointer; }
   background: #000;
 }
 .chamber-video-home {
-  opacity: 1;
-  transition: opacity 420ms ease;
+  opacity: 0;
+  transition: opacity 1.6s ease;
   z-index: 1;
+}
+.chamber-video-home.is-front {
+  opacity: 1;
 }
 .chamber-video-home.is-fading {
   opacity: 0;
+  transition: opacity 420ms ease;
 }
 .chamber-video-open {
   opacity: 0;
-  z-index: 2;
+  z-index: 3;
   pointer-events: none;
   transition: opacity 420ms ease;
 }

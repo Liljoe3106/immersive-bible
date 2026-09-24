@@ -2,8 +2,8 @@
 
 ## What shipped
 - Live `public/chamber/home.mp4` and `open.mp4` re-encoded to 1280x720 H.264 CRF 23, `+faststart`, no audio.
-  - home: ~12.1s, ~3.0MB (was ~12.1MB @ 1080p)
-  - open: ~8.5s, ~3.1MB (was ~14.2MB @ 1080p)
+  - home: ~10.0s, ~4.3MB (v3c all-flames; in-app dual-video loop crossfade). Previous 12.1s 720p kept under `public/chamber/backup/home-pre-v3c-20260924.mp4`.
+  - open: ~8.9s, ~2.4MB stills-v2 (was ~14.2MB @ 1080p)
 - Pre-reencode 1080p masters kept under `public/chamber/backup/` (gitignored; excluded from Vite dist).
 - Still QA of re-encoded frames: closed codex with gold "THE IMMERSIVE BIBLE", seated table-down POV, candles/vase/tree-relief present; open mid = blank parchment spread; open end = full-frame parchment. No Holy Bible / Old Testament text in sampled frames.
 
@@ -16,6 +16,7 @@
 
 ## App wiring
 - Dual video crossfade in `chamber.tsx` (home held until open can play).
+- Dual **home** loop: two `.chamber-video-home` layers, `.is-front` at opacity 1, ~1.6s CSS xfade; opening still uses `.is-fading` to hide both under open.
 - Veil 850ms CSS; navigate on `transitionend` with 900ms failsafe (`NAV_AFTER_VEIL_MS`).
 - Open failsafe still 11000ms.
 
@@ -24,4 +25,10 @@ Rebuilt chamber OPEN from locked stills as `immersive-bible-assets/imagine/v3/op
 
 ## 2026-09-24 open install
 - Live open.mp4 = open-pull-stills-v2 (hard cuts, PASS watch). Cache ?v=stills2
-- Home still pending v3c (all flames + loop blend)
+
+## 2026-09-24 home v3c + in-app loop crossfade
+- Live home.mp4 = `imagine/v3/home-loop-v3c.mp4` re-encoded 1280x720 H.264 yuv420p CRF 23 +faststart, no audio (~10.04s, ~4.3MB). All 3 candles flicker, book closed, gold title THE IMMERSIVE BIBLE, light breathes. Mid-frame poster at `public/chamber/poster.jpg`.
+- File-only xfade blends (`home-loop-v3c-blend*.mp4`) rejected — first/last SSIM ~0.86 still popped. Do **not** use as the live home.
+- In-app dual home `<video>` (same src, no native `loop`). When the front clip has ~1.65s left, the back clip starts at 0 and CSS-crossfades (~1.6s opacity); then the old clip is paused/reset. A fading ref guards double-triggers. Opening pauses **both** homes. `persistHomeTime` / resume use the currently visible home layer. `mediaReady` stays on the primary home `canplay`.
+- `prefers-reduced-motion` keeps a single native-looping home video.
+- Cache `HOME_SRC` / `POSTER` `?v=v3c1`. Open remains stills-v2 (`?v=stills2`).

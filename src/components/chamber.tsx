@@ -11,9 +11,13 @@ import {
 } from '../lib/ambient'
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
-const HOME_SRC = '/chamber/home.mp4?v=seamless2'
+const HOME_SRC = '/chamber/home.mp4?v=v3c1'
 const OPEN_SRC = '/chamber/open.mp4?v=stills2'
-const POSTER = '/chamber/poster.jpg?v=seamless2'
+const POSTER = '/chamber/poster.jpg?v=v3c1'
+/** Start the back home clip this far before the front ends. */
+const HOME_XFADE_LEAD_S = 1.65
+/** Match .chamber-video-home opacity transition. */
+const HOME_XFADE_MS = 1600
 /** open.mp4 ~8.5s + buffer; veil starts ~0.9s before end */
 const FAILSAFE_MS = 11000
 const VEIL_LEAD_S = 0.9
@@ -40,6 +44,9 @@ export function Chamber() {
   const { label: soundLabel, toggle: toggleSound, active: soundActive } = useAmbientSound()
 
   const homeRef = useRef<HTMLVideoElement>(null)
+  const homeBRef = useRef<HTMLVideoElement>(null)
+  const homeFrontRef = useRef(0)
+  const homeFadingRef = useRef(false)
   const openRef = useRef<HTMLVideoElement>(null)
   const veilRef = useRef<HTMLDivElement>(null)
   const [opening, setOpening] = useState(false)
@@ -49,9 +56,25 @@ export function Chamber() {
   const [moreOpen, setMoreOpen] = useState(false)
   const [mediaReady, setMediaReady] = useState(false)
   const [idleDim, setIdleDim] = useState(false)
+  const [homeFront, setHomeFront] = useState(0)
+  const [reducedMotion] = useState(() => prefersReducedMotion())
   const navigated = useRef(false)
   const openStarted = useRef(false)
   const openPlayBegun = useRef(false)
+
+  const visibleHome = () =>
+    homeFrontRef.current === 1 ? homeBRef.current : homeRef.current
+
+  const pauseBothHomes = () => {
+    for (const h of [homeRef.current, homeBRef.current]) {
+      if (!h) continue
+      try {
+        h.pause()
+      } catch {
+        /* */
+      }
+    }
+  }
 
   useEffect(() => {
     touchDay()
@@ -62,7 +85,7 @@ export function Chamber() {
 
   // Soft resume: restore home timeline if we left mid-session recently.
   useEffect(() => {
-    const v = homeRef.current
+    const v = visibleHome() ?? homeRef.current
     if (!v) return
     const tryAmbient = () => startAmbient()
     v.addEventListener('play', tryAmbient)
@@ -132,8 +155,73 @@ export function Chamber() {
     }
   }, [opening])
 
+  // Dual home loop: no native loop. Crossfade onto a second clip near the end.
+  useEffect(() => {
+    if (reducedMotion) return
+    const a = homeRef.current
+    const b = homeBRef.current
+    if (!a || !b) return
+
+    const layer = (i: number) => (i === 0 ? a : b)
+    let fadeTimer = 0
+
+    const startXfade = () => {
+      if (homeFadingRef.current || openStarted.current) return
+      const frontIdx = homeFrontRef.current
+      const front = layer(frontIdx)
+      const nextIdx = frontIdx === 0 ? 1 : 0
+      const back = layer(nextIdx)
+      homeFadingRef.current = true
+      try {
+        back.currentTime = 0
+      } catch {
+        /* */
+      }
+      void back.play().catch(() => {})
+      homeFrontRef.current = nextIdx
+      setHomeFront(nextIdx)
+      window.clearTimeout(fadeTimer)
+      fadeTimer = window.setTimeout(() => {
+        try {
+          front.pause()
+          front.currentTime = 0
+        } catch {
+          /* */
+        }
+        homeFadingRef.current = false
+      }, HOME_XFADE_MS + 80)
+    }
+
+    const onTime = (el: HTMLVideoElement, idx: number) => {
+      if (homeFrontRef.current !== idx) return
+      const dur = el.duration
+      if (!Number.isFinite(dur) || dur <= 0) return
+      if (dur - el.currentTime <= HOME_XFADE_LEAD_S) startXfade()
+    }
+    const onTimeA = () => onTime(a, 0)
+    const onTimeB = () => onTime(b, 1)
+    const onEndedA = () => {
+      if (homeFrontRef.current === 0) startXfade()
+    }
+    const onEndedB = () => {
+      if (homeFrontRef.current === 1) startXfade()
+    }
+
+    a.addEventListener('timeupdate', onTimeA)
+    b.addEventListener('timeupdate', onTimeB)
+    a.addEventListener('ended', onEndedA)
+    b.addEventListener('ended', onEndedB)
+    return () => {
+      a.removeEventListener('timeupdate', onTimeA)
+      b.removeEventListener('timeupdate', onTimeB)
+      a.removeEventListener('ended', onEndedA)
+      b.removeEventListener('ended', onEndedB)
+      window.clearTimeout(fadeTimer)
+    }
+  }, [reducedMotion])
+
   const persistHomeTime = () => {
-    const v = homeRef.current
+    const v = visibleHome()
     if (!v || opening) return
     try {
       setChamberResumeAt(v.currentTime)
@@ -218,7 +306,6 @@ export function Chamber() {
       return
     }
 
-    const home = homeRef.current
     const open = openRef.current
     if (!open) {
       goRead()
@@ -237,15 +324,9 @@ export function Chamber() {
       } else {
         show()
       }
-      if (home) {
-        window.setTimeout(() => {
-          try {
-            home.pause()
-          } catch {
-            /* */
-          }
-        }, 320)
-      }
+      window.setTimeout(() => {
+        pauseBothHomes()
+      }, 320)
     }
 
     if (open.readyState >= 2) beginOpenPlayback()
@@ -301,16 +382,27 @@ export function Chamber() {
     <div className={`chamber-root${idleDim ? ' is-idle' : ''}`}>
       <video
         ref={homeRef}
-        className={`chamber-video chamber-video-home${openVisible ? ' is-fading' : ''}`}
+        className={`chamber-video chamber-video-home${homeFront === 0 ? ' is-front' : ''}${openVisible ? ' is-fading' : ''}`}
         src={HOME_SRC}
         poster={POSTER}
         autoPlay
         muted
         playsInline
-        loop
+        loop={reducedMotion}
         preload="auto"
         onClick={startOpen}
       />
+      {!reducedMotion && (
+        <video
+          ref={homeBRef}
+          className={`chamber-video chamber-video-home${homeFront === 1 ? ' is-front' : ''}${openVisible ? ' is-fading' : ''}`}
+          src={HOME_SRC}
+          muted
+          playsInline
+          preload="auto"
+          aria-hidden
+        />
+      )}
       <video
         ref={openRef}
         className={`chamber-video chamber-video-open${openVisible ? ' is-on' : ''}`}
