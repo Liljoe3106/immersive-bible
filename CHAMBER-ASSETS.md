@@ -18,3 +18,10 @@
 - Dual video crossfade in `chamber.tsx` (home held until open can play).
 - Veil 850ms CSS; navigate on `transitionend` with 900ms failsafe (`NAV_AFTER_VEIL_MS`).
 - Open failsafe still 11000ms.
+
+## OPEN stills rebuild v2 (2026-09-24 evening, Europe/London)
+Rebuilt chamber OPEN from locked stills as `immersive-bible-assets/imagine/v3/open-pull-stills-v2.mp4` (~8.92s, 1280x720, H.264 yuv420p +faststart, no audio). Prior `open-pull-stills.mp4` rejected for 0.8s xfade ghosting/double-exposure of cover text (“THE IMMERSIVE BIBLE”) and a slideshow feel. New recipe: hold closed-best ~1.4s with very gentle zoom → **hard cut** to half-best ~1.0s gentle zoom → **hard cut** to open-best → continuous zoompan dolly into page center ~3.4s (same geometry, no xfade) → soft ≤0.30s xfade only into blank-parchment-best (matched cream framing) then ease to full-frame blank cream ~3.4s. No long xfades between different book geometries; no AI morph. QA frames in `imagine/v3/qa-stills-v2/`. **Not installed** into `public/chamber`.
+
+## 2026-09-24 open install
+- Live open.mp4 = open-pull-stills-v2 (hard cuts, PASS watch). Cache ?v=stills2
+- Home still pending v3c (all flames + loop blend)

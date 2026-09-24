@@ -12,7 +12,7 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=seamless2'
-const OPEN_SRC = '/chamber/open.mp4?v=imagine2c'
+const OPEN_SRC = '/chamber/open.mp4?v=stills2'
 const POSTER = '/chamber/poster.jpg?v=seamless2'
 /** open.mp4 ~8.5s + buffer; veil starts ~0.9s before end */
 const FAILSAFE_MS = 11000
