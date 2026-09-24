@@ -12,18 +12,33 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open.mp4?v=stills2b'
+const OPEN_SRC = '/chamber/open.mp4?v=stills2c'
 const POSTER = '/chamber/poster.jpg?v=v3c1'
+const OPEN_STILLS = {
+  closed: '/chamber/open-stills/closed-best.png?v=stills2c',
+  half: '/chamber/open-stills/half-best.png?v=stills2c',
+  open: '/chamber/open-stills/open-best.png?v=stills2c',
+  parchment: '/chamber/open-stills/blank-parchment-best.png?v=stills2c',
+} as const
 /** Start the back home clip this far before the front ends. */
 const HOME_XFADE_LEAD_S = 1.65
 /** Match .chamber-video-home opacity transition. */
 const HOME_XFADE_MS = 1600
-/** open.mp4 ~8.5s + buffer; veil starts ~0.9s before end */
-const FAILSAFE_MS = 11000
+/** Max ritual wall-clock once open film or stills have started. */
+const FAILSAFE_MS = 20000
+/** If open video not ready / not playing by this after click → stills ritual. */
+const STILLS_FALLBACK_MS = 2500
 const VEIL_LEAD_S = 0.9
 /** Match .chamber-veil transition (850ms) + small settle so nav is fully opaque. */
 const NAV_AFTER_VEIL_MS = 900
 const VEIL_TRANSITION_MS = 850
+/** Hard-cut stills timings (match open-pull-stills-v2 recipe). */
+const STILL_CLOSED_MS = 1400
+const STILL_HALF_MS = 1000
+const STILL_OPEN_MS = 3400
+const STILL_PARCHMENT_MS = 3000
+
+type StillFrame = 'closed' | 'half' | 'open' | 'parchment'
 
 function prefersReducedMotion() {
   try {
@@ -31,6 +46,15 @@ function prefersReducedMotion() {
   } catch {
     return false
   }
+}
+
+function preloadImage(src: string): Promise<void> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve()
+    img.onerror = () => resolve()
+    img.src = src
+  })
 }
 
 export function Chamber() {
@@ -56,12 +80,22 @@ export function Chamber() {
   const [moreOpen, setMoreOpen] = useState(false)
   const [mediaReady, setMediaReady] = useState(false)
   const [openReady, setOpenReady] = useState(false)
+  const [stillsReady, setStillsReady] = useState(false)
   const [idleDim, setIdleDim] = useState(false)
   const [homeFront, setHomeFront] = useState(0)
+  const [allowHomeB, setAllowHomeB] = useState(false)
+  const [openBlobUrl, setOpenBlobUrl] = useState<string | null>(null)
+  const [stillsActive, setStillsActive] = useState(false)
+  const [stillFrame, setStillFrame] = useState<StillFrame | null>(null)
   const [reducedMotion] = useState(() => prefersReducedMotion())
   const navigated = useRef(false)
   const openStarted = useRef(false)
   const openPlayBegun = useRef(false)
+  const ritualShown = useRef(false)
+  const stillsStarted = useRef(false)
+  const failsafeTimer = useRef(0)
+  const stillsTimers = useRef<number[]>([])
+  const openBlobUrlRef = useRef<string | null>(null)
 
   const visibleHome = () =>
     homeFrontRef.current === 1 ? homeBRef.current : homeRef.current
@@ -77,12 +111,79 @@ export function Chamber() {
     }
   }
 
+  const clearStillsTimers = () => {
+    for (const id of stillsTimers.current) window.clearTimeout(id)
+    stillsTimers.current = []
+  }
+
+  const armFailsafe = () => {
+    if (failsafeTimer.current) return
+    failsafeTimer.current = window.setTimeout(() => {
+      goRead()
+    }, FAILSAFE_MS)
+  }
+
+  const markRitualShown = () => {
+    if (ritualShown.current) return
+    ritualShown.current = true
+    armFailsafe()
+  }
+
   useEffect(() => {
     touchDay()
     setAmbientMuted(audioMuted)
     startAmbient()
     bindAmbientGesture()
   }, [audioMuted, touchDay])
+
+  // Prefetch open.mp4 as Blob so tunnel cancel mid-stream cannot starve play().
+  useEffect(() => {
+    let cancelled = false
+    let objectUrl: string | null = null
+    const ac = new AbortController()
+
+    const run = async () => {
+      try {
+        const res = await fetch(OPEN_SRC, { signal: ac.signal, cache: 'force-cache' })
+        if (!res.ok) throw new Error(`open fetch ${res.status}`)
+        const buf = await res.arrayBuffer()
+        if (cancelled) return
+        const blob = new Blob([buf], { type: 'video/mp4' })
+        objectUrl = URL.createObjectURL(blob)
+        openBlobUrlRef.current = objectUrl
+        setOpenBlobUrl(objectUrl)
+        setAllowHomeB(true)
+      } catch {
+        if (!cancelled) {
+          // Fall through: stills path + network src fallback.
+          setAllowHomeB(true)
+        }
+      }
+    }
+    void run()
+
+    void Promise.all([
+      preloadImage(OPEN_STILLS.closed),
+      preloadImage(OPEN_STILLS.half),
+      preloadImage(OPEN_STILLS.open),
+      preloadImage(OPEN_STILLS.parchment),
+    ]).then(() => {
+      if (!cancelled) setStillsReady(true)
+    })
+
+    return () => {
+      cancelled = true
+      ac.abort()
+      if (objectUrl) {
+        try {
+          URL.revokeObjectURL(objectUrl)
+        } catch {
+          /* */
+        }
+      }
+      openBlobUrlRef.current = null
+    }
+  }, [])
 
   // Soft resume: restore home timeline if we left mid-session recently.
   useEffect(() => {
@@ -113,35 +214,36 @@ export function Chamber() {
       else v.addEventListener('loadedmetadata', seek, { once: true })
     }
 
-    // Preload open clip aggressively so the ritual does not stall on tunnel.
-    const o = openRef.current
-    const onOpenReady = () => setOpenReady(true)
-    if (o) {
-      o.preload = 'auto'
-      try {
-        o.load()
-      } catch {
-        /* */
-      }
-      if (o.readyState >= 2) setOpenReady(true)
-      o.addEventListener('canplay', onOpenReady)
-      o.addEventListener('canplaythrough', onOpenReady)
-      o.addEventListener('loadeddata', onOpenReady)
-    }
-
     return () => {
       v.removeEventListener('play', tryAmbient)
       v.removeEventListener('playing', tryAmbient)
       v.removeEventListener('canplay', onReady)
       v.removeEventListener('loadeddata', onReady)
-      if (o) {
-        o.removeEventListener('canplay', onOpenReady)
-        o.removeEventListener('canplaythrough', onOpenReady)
-        o.removeEventListener('loadeddata', onOpenReady)
-      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once on mount
   }, [])
+
+  // Wire open video once blob URL (or network src) is assigned.
+  useEffect(() => {
+    const o = openRef.current
+    if (!o) return
+    const onOpenReady = () => setOpenReady(true)
+    o.preload = 'auto'
+    try {
+      o.load()
+    } catch {
+      /* */
+    }
+    if (o.readyState >= 2) setOpenReady(true)
+    o.addEventListener('canplay', onOpenReady)
+    o.addEventListener('canplaythrough', onOpenReady)
+    o.addEventListener('loadeddata', onOpenReady)
+    return () => {
+      o.removeEventListener('canplay', onOpenReady)
+      o.removeEventListener('canplaythrough', onOpenReady)
+      o.removeEventListener('loadeddata', onOpenReady)
+    }
+  }, [openBlobUrl])
 
   // Idle candle vignette after quiet dwell.
   useEffect(() => {
@@ -167,8 +269,10 @@ export function Chamber() {
   }, [opening])
 
   // Dual home loop: no native loop. Crossfade onto a second clip near the end.
+  // Second home is only mounted after open blob is ready (or fetch failed) to
+  // avoid bandwidth fight over Cloudflare tunnel.
   useEffect(() => {
-    if (reducedMotion) return
+    if (reducedMotion || !allowHomeB) return
     const a = homeRef.current
     const b = homeBRef.current
     if (!a || !b) return
@@ -229,7 +333,14 @@ export function Chamber() {
       b.removeEventListener('ended', onEndedB)
       window.clearTimeout(fadeTimer)
     }
-  }, [reducedMotion])
+  }, [reducedMotion, allowHomeB])
+
+  useEffect(() => {
+    return () => {
+      window.clearTimeout(failsafeTimer.current)
+      clearStillsTimers()
+    }
+  }, [])
 
   const persistHomeTime = () => {
     const v = visibleHome()
@@ -244,6 +355,8 @@ export function Chamber() {
   const goRead = () => {
     if (navigated.current) return
     navigated.current = true
+    window.clearTimeout(failsafeTimer.current)
+    clearStillsTimers()
     setVeil(true)
     setLayoutMode('book')
     setChamberResumeAt(null)
@@ -298,14 +411,44 @@ export function Chamber() {
     window.setTimeout(nav, NAV_AFTER_VEIL_MS)
   }
 
+  const runStillsRitual = () => {
+    if (stillsStarted.current || navigated.current) return
+    stillsStarted.current = true
+    openPlayBegun.current = true // cancel video path racing in
+    pauseBothHomes()
+    setOpenVisible(false)
+    setStillsActive(true)
+    setStillFrame('closed')
+    markRitualShown()
+
+    const schedule = (ms: number, fn: () => void) => {
+      stillsTimers.current.push(window.setTimeout(fn, ms))
+    }
+
+    let t = STILL_CLOSED_MS
+    schedule(t, () => setStillFrame('half'))
+    t += STILL_HALF_MS
+    schedule(t, () => setStillFrame('open'))
+    t += STILL_OPEN_MS
+    schedule(t, () => setStillFrame('parchment'))
+    t += STILL_PARCHMENT_MS
+    schedule(t, () => {
+      setVeil(true)
+      window.setTimeout(() => goRead(), VEIL_TRANSITION_MS + 40)
+    })
+  }
+
   const startOpen = () => {
     if (opening || openStarted.current) return
+    // Hard-block until open blob ready OR stills preloaded (Preparing…).
+    if (!openReady && !stillsReady && !prefersReducedMotion()) return
     if (!mediaReady && !prefersReducedMotion()) {
-      // Still allow open; readiness gate dims CTA but click can proceed once ready.
       if (homeRef.current && homeRef.current.readyState < 2) return
     }
     openStarted.current = true
     openPlayBegun.current = false
+    ritualShown.current = false
+    stillsStarted.current = false
     setOpening(true)
     setMoreOpen(false)
     startAmbient()
@@ -319,17 +462,19 @@ export function Chamber() {
 
     const open = openRef.current
     if (!open) {
-      goRead()
+      runStillsRitual()
       return
     }
 
     const showOpen = () => {
+      if (stillsStarted.current) return
       setOpenVisible(true)
       pauseBothHomes()
+      markRitualShown()
     }
 
     const beginOpenPlayback = () => {
-      if (openPlayBegun.current) return
+      if (openPlayBegun.current || stillsStarted.current) return
       if (open.readyState < 2) return
       openPlayBegun.current = true
       open.loop = false
@@ -338,16 +483,16 @@ export function Chamber() {
       } catch {
         /* */
       }
-      // Always reveal once a frame exists. Never skip to reader on play() rejection
-      // (common when open.mp4 was canceled mid-buffer over a tunnel).
       showOpen()
       const tryPlay = () => {
+        if (stillsStarted.current) return
         const playP = open.play()
         if (playP && typeof playP.then === 'function') {
           playP.catch(() => {
             const retry = () => {
+              if (stillsStarted.current) return
               void open.play().catch(() => {
-                /* keep film visible; ended / FAILSAFE still navigate */
+                /* keep film visible; stills / FAILSAFE still navigate */
               })
             }
             if (open.readyState >= 2) window.setTimeout(retry, 180)
@@ -366,15 +511,29 @@ export function Chamber() {
       } catch {
         /* */
       }
-      // Soft nudge if buffer arrives late; FAILSAFE still owns hard timeout.
       window.setTimeout(() => {
-        if (!openPlayBegun.current && open.readyState >= 2) beginOpenPlayback()
+        if (!openPlayBegun.current && !stillsStarted.current && open.readyState >= 2) {
+          beginOpenPlayback()
+        }
       }, 1200)
     }
 
+    // Stills fallback if open never reaches ready / never starts playing.
+    window.setTimeout(() => {
+      if (navigated.current || stillsStarted.current) return
+      if (!openPlayBegun.current || open.readyState < 2) {
+        try {
+          open.pause()
+        } catch {
+          /* */
+        }
+        runStillsRitual()
+      }
+    }, STILLS_FALLBACK_MS)
+
     let veilArmed = false
     const armVeilEarly = () => {
-      if (veilArmed || navigated.current) return
+      if (veilArmed || navigated.current || stillsStarted.current) return
       const dur = open.duration
       if (!Number.isFinite(dur) || dur <= 0) return
       if (dur - open.currentTime <= VEIL_LEAD_S) {
@@ -385,14 +544,12 @@ export function Chamber() {
     const onTime = () => armVeilEarly()
     open.addEventListener('timeupdate', onTime)
     const onEnded = () => {
+      if (stillsStarted.current) return
       open.removeEventListener('timeupdate', onTime)
       goRead()
     }
     open.addEventListener('ended', onEnded, { once: true })
-    window.setTimeout(() => {
-      open.removeEventListener('timeupdate', onTime)
-      goRead()
-    }, FAILSAFE_MS)
+    // FAILSAFE is armed only once ritual is shown (video or stills).
   }
 
   const stopHud = (e: MouseEvent) => {
@@ -411,24 +568,39 @@ export function Chamber() {
     softLeave('/search', q ? { q } : undefined)
   }
 
+  const canContinue = mediaReady && (openReady || stillsReady)
+  const openSrc = openBlobUrl ?? OPEN_SRC
+  const fadingHomes = openVisible || stillsActive
+
+  const stillSrc =
+    stillFrame === 'closed'
+      ? OPEN_STILLS.closed
+      : stillFrame === 'half'
+        ? OPEN_STILLS.half
+        : stillFrame === 'open'
+          ? OPEN_STILLS.open
+          : stillFrame === 'parchment'
+            ? OPEN_STILLS.parchment
+            : null
+
   return (
     <div className={`chamber-root${idleDim ? ' is-idle' : ''}`}>
       <video
         ref={homeRef}
-        className={`chamber-video chamber-video-home${homeFront === 0 ? ' is-front' : ''}${openVisible ? ' is-fading' : ''}`}
+        className={`chamber-video chamber-video-home${homeFront === 0 ? ' is-front' : ''}${fadingHomes ? ' is-fading' : ''}`}
         src={HOME_SRC}
         poster={POSTER}
         autoPlay
         muted
         playsInline
-        loop={reducedMotion}
+        loop={reducedMotion || !allowHomeB}
         preload="auto"
         onClick={startOpen}
       />
-      {!reducedMotion && (
+      {!reducedMotion && allowHomeB && (
         <video
           ref={homeBRef}
-          className={`chamber-video chamber-video-home${homeFront === 1 ? ' is-front' : ''}${openVisible ? ' is-fading' : ''}`}
+          className={`chamber-video chamber-video-home${homeFront === 1 ? ' is-front' : ''}${fadingHomes ? ' is-fading' : ''}`}
           src={HOME_SRC}
           muted
           playsInline
@@ -438,13 +610,21 @@ export function Chamber() {
       )}
       <video
         ref={openRef}
-        className={`chamber-video chamber-video-open${openVisible ? ' is-on' : ''}`}
-        src={OPEN_SRC}
+        className={`chamber-video chamber-video-open${openVisible && !stillsActive ? ' is-on' : ''}`}
+        src={openSrc}
         muted
         playsInline
         preload="auto"
         aria-hidden
       />
+      {stillsActive && stillSrc && (
+        <img
+          className={`chamber-open-still is-on${stillFrame === 'open' ? ' is-zooming' : ''}`}
+          src={stillSrc}
+          alt=""
+          draggable={false}
+        />
+      )}
       <div
         ref={veilRef}
         className={`chamber-veil${veil ? ' on' : ''}`}
@@ -458,7 +638,7 @@ export function Chamber() {
         aria-label="Open the book"
         onClick={startOpen}
         tabIndex={opening ? -1 : 0}
-        disabled={opening}
+        disabled={opening || !canContinue}
       />
 
       <div className={`chamber-dock${opening ? ' is-opening' : ''}`} aria-hidden={opening}>
@@ -490,14 +670,14 @@ export function Chamber() {
             <button
               type="button"
               className="chamber-ghost chamber-primary"
-              disabled={!mediaReady && !opening}
-              aria-disabled={!mediaReady && !opening}
+              disabled={!canContinue && !opening}
+              aria-disabled={!canContinue && !opening}
               onClick={(e) => {
                 e.stopPropagation()
                 startOpen()
               }}
             >
-              {mediaReady && (openReady || opening) ? ctaLabel : 'Preparing…'}
+              {canContinue || opening ? ctaLabel : 'Preparing…'}
             </button>
             <button
               type="button"

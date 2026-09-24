@@ -38,3 +38,11 @@ Rebuilt chamber OPEN from locked stills as `immersive-bible-assets/imagine/v3/op
 - Open ritual: removed `play().then(show).catch(() => goRead())`. Always show open once `readyState>=2` / canplay; retry play on rejection; navigate only on `ended` or FAILSAFE. `openReady` + aggressive preload (`canplay` / `canplaythrough`). CTA soft-prefers open buffer (Preparing until home+open ready; click still allowed once home ready).
 - Cache `OPEN_SRC ?v=stills2b`. Re-encoded live open.mp4 CRF 26 (~1.2MB, same stills-v2 content). Prior CRF23 kept under `public/chamber/backup/open-pre-stills2b-20260924.mp4`.
 - z-index unchanged: open `.is-on` at 3 above homes at 1.
+
+## 2026-09-24 open blob + stills fallback (tunnel cancel fix)
+- Prefetch `open.mp4?v=stills2c` as Blob on mount → `URL.createObjectURL`; revoke on unmount. Prefer blob src when ready.
+- If open never reaches `readyState>=2` / play within ~2.5s of click → image-sequence ritual from `public/chamber/open-stills/` (closed → half → open CSS zoom 3.4s → parchment), then cream veil + navigate. Works with zero open.mp4 bytes.
+- FAILSAFE armed only after open film shown OR stills started; wall-clock 20s.
+- Continue hard-blocked (Preparing…) until openReady (blob+canplay) OR stills preloaded.
+- Second home `<video>` deferred until open blob ready (or fetch failed) to stop dual-home vs open bandwidth fight over Cloudflare tunnel.
+- No Imagine. Frosted HUD unchanged. stills2 open.mp4 remains preferred path when blob works.

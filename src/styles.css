@@ -69,6 +69,30 @@ button { font: inherit; cursor: pointer; }
 .chamber-video-open.is-on {
   opacity: 1;
 }
+.chamber-open-still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 42%;
+  opacity: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: #000;
+  transform: scale(1);
+  transform-origin: center 48%;
+}
+.chamber-open-still.is-on {
+  opacity: 1;
+}
+.chamber-open-still.is-zooming {
+  animation: chamber-open-still-zoom 3.4s ease-out forwards;
+}
+@keyframes chamber-open-still-zoom {
+  from { transform: scale(1); }
+  to { transform: scale(1.22); }
+}
 .chamber-idle-vignette {
   position: absolute;
   inset: 0;
