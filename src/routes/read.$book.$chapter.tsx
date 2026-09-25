@@ -64,6 +64,11 @@ function ReaderPage() {
     readerSettleLatch = true
     return true
   })
+  /** Latch chamber open last-frame underlay once; clear store after fade. */
+  const [handoffUrl] = useState(() => useAppStore.getState().openHandoffFrame)
+  const [handoffOn, setHandoffOn] = useState(() => !!useAppStore.getState().openHandoffFrame)
+  const [handoffFading, setHandoffFading] = useState(false)
+  const clearOpenHandoffFrame = useAppStore((s) => s.clearOpenHandoffFrame)
   const settleRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const loadingMore = useRef(false)
@@ -100,6 +105,26 @@ function ReaderPage() {
       el?.removeEventListener('animationend', onEnd)
     }
   }, [settleIn])
+
+  // Fade last-frame underlay after text/chrome ready; then drop from store.
+  useEffect(() => {
+    if (!handoffUrl || !handoffOn) return
+    let fadeT = 0
+    let clearT = 0
+    const startFade = () => {
+      setHandoffFading(true)
+      clearT = window.setTimeout(() => {
+        setHandoffOn(false)
+        clearOpenHandoffFrame()
+      }, 1100)
+    }
+    // Keep underlay through early settle (~1.2s), then soft fade to live vellum.
+    fadeT = window.setTimeout(startFade, settleIn ? 1200 : 800)
+    return () => {
+      window.clearTimeout(fadeT)
+      window.clearTimeout(clearT)
+    }
+  }, [handoffUrl, handoffOn, settleIn, clearOpenHandoffFrame])
 
   useEffect(() => {
     if (search.mode && search.mode !== readMode) {
@@ -298,8 +323,17 @@ function ReaderPage() {
 
   return (
     <div
-      className={`reader-shell${isBook ? ' reader-shell-book' : ''}${chromeHidden ? ' chrome-hidden' : ''}`}
+      className={`reader-shell${isBook ? ' reader-shell-book' : ''}${chromeHidden ? ' chrome-hidden' : ''}${handoffOn ? ' has-handoff' : ''}${handoffOn && !handoffFading ? ' handoff-chrome-in' : ''}`}
     >
+      {handoffOn && handoffUrl ? (
+        <img
+          className={`reader-handoff-underlay${handoffFading ? ' is-fading' : ''}`}
+          src={handoffUrl}
+          alt=""
+          aria-hidden
+          draggable={false}
+        />
+      ) : null}
       <header className="reader-top">
         <div className="reader-top-side reader-top-view">
           <div className="chamber-row">

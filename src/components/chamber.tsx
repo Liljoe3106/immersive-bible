@@ -12,7 +12,7 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open.mp4?v=pullv3'
+const OPEN_SRC = '/chamber/open.mp4?v=pullv4'
 const POSTER = '/chamber/poster.jpg?v=v3c1'
 /** Network paths (cache-bust). Prefer blob object URLs once prefetched. */
 const OPEN_STILLS_PATHS = {
@@ -33,7 +33,6 @@ const STUCK_PAUSED_MS = 2000
 const OPEN_PREFER_WAIT_MS = 11000
 /** On Continue click: wait this long for in-flight open blob before stills. */
 const OPEN_CLICK_WAIT_MS = 6000
-const VEIL_LEAD_S = 0.9
 /** Match .chamber-veil transition (850ms) + small settle so nav is fully opaque. */
 const NAV_AFTER_VEIL_MS = 900
 const VEIL_TRANSITION_MS = 850
@@ -62,6 +61,25 @@ function prefersReducedMotion() {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
   } catch {
     return false
+  }
+}
+
+
+/** Capture current video frame for seamless reader underlay. */
+function captureVideoFrame(video: HTMLVideoElement): string | null {
+  try {
+    const w = video.videoWidth
+    const h = video.videoHeight
+    if (!w || !h) return null
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(video, 0, 0, w, h)
+    return canvas.toDataURL('image/jpeg', 0.92)
+  } catch {
+    return null
   }
 }
 
@@ -105,6 +123,7 @@ export function Chamber() {
   const chamberResumeAt = useAppStore((s) => s.chamberResumeAt)
   const setChamberResumeAt = useAppStore((s) => s.setChamberResumeAt)
   const armReaderSettle = useAppStore((s) => s.armReaderSettle)
+  const setOpenHandoffFrame = useAppStore((s) => s.setOpenHandoffFrame)
   const { label: soundLabel, toggle: toggleSound, active: soundActive } = useAmbientSound()
 
   const homeRef = useRef<HTMLVideoElement>(null)
@@ -464,12 +483,13 @@ export function Chamber() {
     }
   }
 
-  const goRead = () => {
+  const goRead = (opts?: { seamless?: boolean }) => {
     if (navigated.current) return
     navigated.current = true
     window.clearTimeout(failsafeTimer.current)
     clearStillsTimers()
-    setVeil(true)
+    const seamless = !!opts?.seamless
+    if (!seamless) setVeil(true)
     setLayoutMode('book')
     setChamberResumeAt(null)
     armReaderSettle()
@@ -480,6 +500,11 @@ export function Chamber() {
         to: '/read/$book/$chapter',
         params: { book, chapter: String(chapter) },
       })
+    }
+    if (seamless) {
+      // Last open frame already in store as underlay — navigate without cream veil.
+      nav()
+      return
     }
     const veilEl = veilRef.current
     let done = false
@@ -727,22 +752,30 @@ export function Chamber() {
       if (open.paused && open.currentTime < 0.05) switchToStills()
     }, STUCK_PAUSED_MS)
 
-    let veilArmed = false
-    const armVeilEarly = () => {
-      if (veilArmed || navigated.current || stillsStarted.current) return
+    let handoffArmed = false
+    const captureHandoff = (force = false) => {
+      if (navigated.current || stillsStarted.current) return
+      if (handoffArmed && !force) return
+      const url = captureVideoFrame(open)
+      if (!url) return
+      handoffArmed = true
+      setOpenHandoffFrame(url)
+    }
+    const armHandoffEarly = () => {
+      if (navigated.current || stillsStarted.current) return
       const dur = open.duration
       if (!Number.isFinite(dur) || dur <= 0) return
-      if (dur - open.currentTime <= VEIL_LEAD_S) {
-        veilArmed = true
-        setVeil(true)
-      }
+      // Prefetch underlay near the end; ended handler refreshes to the true last frame.
+      if (dur - open.currentTime <= 0.2) captureHandoff(false)
     }
-    const onTime = () => armVeilEarly()
+    const onTime = () => armHandoffEarly()
     open.addEventListener('timeupdate', onTime)
     const onEnded = () => {
       if (stillsStarted.current) return
       open.removeEventListener('timeupdate', onTime)
-      goRead()
+      captureHandoff(true)
+      // Navigate without cream veil; reader mounts last-frame underlay.
+      goRead({ seamless: true })
     }
     open.addEventListener('ended', onEnded, { once: true })
   }

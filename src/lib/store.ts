@@ -31,6 +31,8 @@ interface AppState {
   chamberResumeAt: number | null
   /** Session-only: arm settle-in zoom when leaving chamber open ritual for reader. */
   readerSettlePending: boolean
+  /** Session-only: last open.mp4 frame data URL for seamless reader underlay. */
+  openHandoffFrame: string | null
   guidePlanId: string | null
   guideDay: number
   setPlace: (p: Place) => void
@@ -45,6 +47,8 @@ interface AppState {
   setChamberResumeAt: (t: number | null) => void
   armReaderSettle: () => void
   consumeReaderSettle: () => boolean
+  setOpenHandoffFrame: (url: string | null) => void
+  clearOpenHandoffFrame: () => void
   touchDay: () => void
   cacheNamed: (key: string, value: unknown) => void
 }
@@ -84,6 +88,7 @@ export const useAppStore = create<AppState>()(
       audioMuted: false,
       chamberResumeAt: null,
       readerSettlePending: false,
+      openHandoffFrame: null,
       guidePlanId: null,
       guideDay: 0,
       setPlace: (p) => {
@@ -135,6 +140,8 @@ export const useAppStore = create<AppState>()(
         if (pending) set({ readerSettlePending: false })
         return pending
       },
+      setOpenHandoffFrame: (url) => set({ openHandoffFrame: url }),
+      clearOpenHandoffFrame: () => set({ openHandoffFrame: null }),
       setGuideProgress: (planId, day) => set({ guidePlanId: planId, guideDay: day }),
       touchDay: () =>
         set((s) => {
@@ -152,7 +159,11 @@ export const useAppStore = create<AppState>()(
       name: 'immersive-bible-v1',
       version: 2,
       partialize: (state) => {
-        const { readerSettlePending: _omit, ...rest } = state
+        const {
+          readerSettlePending: _omitSettle,
+          openHandoffFrame: _omitHandoff,
+          ...rest
+        } = state
         return rest
       },
       migrate: (persisted, version) => {

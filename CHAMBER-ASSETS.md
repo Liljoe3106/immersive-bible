@@ -46,3 +46,8 @@ Rebuilt chamber OPEN from locked stills as `immersive-bible-assets/imagine/v3/op
 - Continue hard-blocked (Preparing…) until openReady (blob+canplay) OR stills preloaded.
 - Second home `<video>` deferred until open blob ready (or fetch failed) to stop dual-home vs open bandwidth fight over Cloudflare tunnel.
 - No Imagine. Frosted HUD unchanged. stills2 open.mp4 remains preferred path when blob works.
+
+## 2026-09-25 open-pull-v4 + last-frame handoff
+- Live `open.mp4` replaced with continuous closed→hinge→parchment from `imagine/v2/open-pull-best.mp4`, re-encoded with last 0.8s soft xfade to solid `#efe6d8` (`imagine/v4/open-pull-v4.mp4`, ~10.04s, ~6.3MB). Cache `OPEN_SRC ?v=pullv4`.
+- Rejected for ship: `open-pull-v3.mp4` (morph/jump), `open-pull-stills-v3` (Ken Burns). Recipe: `imagine/v4/open-pull-v4-recipe.txt`. Notes: `imagine/v4/NOTES.md`.
+- Video Continue path: capture last decoded frame → session `openHandoffFrame`; `goRead({ seamless: true })` skips cream veil; reader shows fixed full-bleed underlay then soft-fades to live vellum (~1.2s + 1.1s fade). Stills/cream-only and `softLeave` still use the soft veil.
