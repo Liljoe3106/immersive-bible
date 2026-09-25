@@ -1,5 +1,5 @@
 /* Immersive Bible SW: tiered cache. Never precache full chamber videos on first visit. */
-const VERSION = 'ib-v1'
+const VERSION = 'ib-v2'
 const PRECACHE = [
   '/',
   '/manifest.webmanifest',

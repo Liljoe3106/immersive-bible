@@ -12,7 +12,7 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open.mp4?v=pullv5'
+const OPEN_SRC = '/chamber/open-zoom.mp4?v=pullv6'
 const POSTER = '/chamber/poster.jpg?v=v3c1'
 /** Network paths (cache-bust). Prefer blob object URLs once prefetched. */
 const OPEN_STILLS_PATHS = {
@@ -229,7 +229,7 @@ export function Chamber() {
 
     const runOpen = async () => {
       try {
-        const res = await fetch(OPEN_SRC, { signal: ac.signal, cache: 'force-cache' })
+        const res = await fetch(OPEN_SRC, { signal: ac.signal, cache: 'no-store' })
         if (!res.ok) throw new Error(`open fetch ${res.status}`)
         const buf = await res.arrayBuffer()
         if (cancelled) return

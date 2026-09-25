@@ -66,3 +66,18 @@ Rebuilt chamber OPEN from locked stills as `immersive-bible-assets/imagine/v3/op
   + ≥1.3s cream hold. **No** cover hinge, page fan, or AI morph.
 - `imagine/v5/open-pull-v5.mp4` (~7.75s, ~2.13MB). Installed `?v=pullv5`.
 - Capture window unchanged (`dur-0.35` still lands in cream). Recipe/NOTES in `imagine/v5/`.
+
+## 2026-09-25 open-pull-v6 (TRUE flat-page parchment zoom)
+- Joe: pullv5 still STARTS on open-best → raised left page / open-book wing silhouette
+  (same wing aesthetic without hinge). Also `cache:'force-cache'` could keep stale blobs.
+- Rebuilt from **blank-parchment-best.png ONLY** (full-bleed cream parchment — no wing,
+  no raised pages, no cover, no gutter). open-best not used even cropped.
+- Continuous ease-in zoompan 6.5s z→4.2 into texture center → 0.6s settle → 1.1s xfade
+  to `#efe6d8` + ≥1.4s cream hold. **No** cover / wing / page flip / open-book silhouette
+  at any frame.
+- `imagine/v6/open-pull-v6.mp4` (~8.5s, ~2.19MB, 1280×720, 24fps).
+- Installed as **NEW filename** `public/chamber/open-zoom.mp4?v=pullv6` (also copied to
+  `open.mp4`). OPEN_SRC points at open-zoom. Prefetch `cache:'no-store'`. SW VERSION
+  `ib-v1` → `ib-v2` (videos remain network-only).
+- QA t0/mid/end: flat parchment / cream only. End RGB (238,229,216). Recipe/NOTES in
+  `imagine/v6/`.
