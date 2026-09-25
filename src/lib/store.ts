@@ -29,6 +29,8 @@ interface AppState {
   audioMuted: boolean
   /** Soft resume: home video should continue near last time when returning mid-session. */
   chamberResumeAt: number | null
+  /** Session-only: arm settle-in zoom when leaving chamber open ritual for reader. */
+  readerSettlePending: boolean
   guidePlanId: string | null
   guideDay: number
   setPlace: (p: Place) => void
@@ -41,6 +43,8 @@ interface AppState {
   setReadMode: (m: ReadMode) => void
   setAudioMuted: (m: boolean) => void
   setChamberResumeAt: (t: number | null) => void
+  armReaderSettle: () => void
+  consumeReaderSettle: () => boolean
   touchDay: () => void
   cacheNamed: (key: string, value: unknown) => void
 }
@@ -79,6 +83,7 @@ export const useAppStore = create<AppState>()(
       readMode: 'en',
       audioMuted: false,
       chamberResumeAt: null,
+      readerSettlePending: false,
       guidePlanId: null,
       guideDay: 0,
       setPlace: (p) => {
@@ -124,6 +129,12 @@ export const useAppStore = create<AppState>()(
       setReadMode: (m) => set({ readMode: m }),
       setAudioMuted: (m) => set({ audioMuted: m }),
       setChamberResumeAt: (t) => set({ chamberResumeAt: t }),
+      armReaderSettle: () => set({ readerSettlePending: true }),
+      consumeReaderSettle: () => {
+        const pending = get().readerSettlePending
+        if (pending) set({ readerSettlePending: false })
+        return pending
+      },
       setGuideProgress: (planId, day) => set({ guidePlanId: planId, guideDay: day }),
       touchDay: () =>
         set((s) => {
@@ -140,6 +151,10 @@ export const useAppStore = create<AppState>()(
     {
       name: 'immersive-bible-v1',
       version: 2,
+      partialize: (state) => {
+        const { readerSettlePending: _omit, ...rest } = state
+        return rest
+      },
       migrate: (persisted, version) => {
         const p = (persisted ?? {}) as Partial<AppState> & Record<string, unknown>
         // v1 had layoutMode defaulting to scroll; new sessions get book.

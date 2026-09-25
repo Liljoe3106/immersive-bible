@@ -1010,6 +1010,34 @@ button { font: inherit; cursor: pointer; }
 .tour-walk-chip:hover { filter: brightness(1.08); }
 .tour-walk-open { margin-top: 0.5rem; }
 
+
+/* —— Reader settle-in (after chamber open ritual) —— */
+.reader-settle {
+  transform: scale(1);
+  transform-origin: center 42%;
+  will-change: transform;
+}
+.reader-shell-book > .reader-settle {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.reader-settle.is-settling {
+  animation: reader-settle-in 2.8s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes reader-settle-in {
+  from { transform: scale(0.972); }
+  to { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader-settle.is-settling {
+    animation: none;
+    transform: scale(1);
+  }
+}
+
 /* —— Book layout (codex spread) —— */
 .reader-shell-book {
   height: 100dvh;
@@ -1299,5 +1327,9 @@ button { font: inherit; cursor: pointer; }
   .chamber-open-still.is-zooming {
     animation: none !important;
     transform: none !important;
+  }
+  .reader-settle.is-settling {
+    animation: none !important;
+    transform: scale(1) !important;
   }
 }

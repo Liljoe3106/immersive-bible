@@ -21,6 +21,9 @@ function chunkKey(c: { book: string; chapter: number }) {
   return `${c.book}-${c.chapter}`
 }
 
+/** Survives React StrictMode remount so settle still plays once per chamber arrival. */
+let readerSettleLatch = false
+
 export const Route = createFileRoute('/read/$book/$chapter')({
   validateSearch: (s: Record<string, unknown>): { v?: number; w?: string; mode?: ReadMode } => ({
     v: s.v != null && s.v !== '' ? Number(s.v) : undefined,
@@ -49,6 +52,19 @@ function ReaderPage() {
   const [loading, setLoading] = useState(true)
   const [chromeHidden, setChromeHidden] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [settleIn, setSettleIn] = useState(() => {
+    if (readerSettleLatch) return true
+    const pending = useAppStore.getState().consumeReaderSettle()
+    if (!pending) return false
+    try {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
+    } catch {
+      /* */
+    }
+    readerSettleLatch = true
+    return true
+  })
+  const settleRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const loadingMore = useRef(false)
   const initialDone = useRef(false)
@@ -63,6 +79,27 @@ function ReaderPage() {
     startAmbient()
     bindAmbientGesture()
   }, [])
+
+  // Clear settle class after animation (armed only once via consume on mount).
+  useEffect(() => {
+    if (!settleIn) return
+    const clear = () => {
+      readerSettleLatch = false
+      setSettleIn(false)
+    }
+    const t = window.setTimeout(clear, 3500)
+    const el = settleRef.current
+    const onEnd = (e: AnimationEvent) => {
+      if (e.target !== el) return
+      if (e.animationName !== 'reader-settle-in') return
+      clear()
+    }
+    el?.addEventListener('animationend', onEnd)
+    return () => {
+      window.clearTimeout(t)
+      el?.removeEventListener('animationend', onEnd)
+    }
+  }, [settleIn])
 
   useEffect(() => {
     if (search.mode && search.mode !== readMode) {
@@ -353,38 +390,43 @@ function ReaderPage() {
         )}
       </header>
 
-      {isBook ? (
-        <BookReader
-          book={book}
-          chapter={chapter}
-          mode={mode}
-          readSize={readSize}
-          highlightVerse={search.v}
-          onWord={setPanel}
-          onChapterChange={onBookChapterChange}
-        />
-      ) : (
-        <main className={`reader-body reader-size-${readSize}`}>
-          {loading && <p className="muted">Opening {title}…</p>}
-          {chunks.map((c, idx) => (
-            <ChapterBlock
-              key={chunkKey(c)}
-              book={c.book}
-              chapter={c.chapter}
-              en={c.en}
-              orig={c.orig}
-              mode={mode}
-              highlightVerse={c.book === book && c.chapter === chapter ? search.v : undefined}
-              onWord={setPanel}
-              showCatches={idx === 0}
-            />
-          ))}
-          <div ref={sentinelRef} style={{ height: 1 }} />
-          <p className="muted" style={{ textAlign: 'center', marginTop: '2rem' }}>
-            Keep scrolling: next chapter loads quietly.
-          </p>
-        </main>
-      )}
+      <div
+        ref={settleRef}
+        className={`reader-settle${settleIn ? ' is-settling' : ''}`}
+      >
+        {isBook ? (
+          <BookReader
+            book={book}
+            chapter={chapter}
+            mode={mode}
+            readSize={readSize}
+            highlightVerse={search.v}
+            onWord={setPanel}
+            onChapterChange={onBookChapterChange}
+          />
+        ) : (
+          <main className={`reader-body reader-size-${readSize}`}>
+            {loading && <p className="muted">Opening {title}…</p>}
+            {chunks.map((c, idx) => (
+              <ChapterBlock
+                key={chunkKey(c)}
+                book={c.book}
+                chapter={c.chapter}
+                en={c.en}
+                orig={c.orig}
+                mode={mode}
+                highlightVerse={c.book === book && c.chapter === chapter ? search.v : undefined}
+                onWord={setPanel}
+                showCatches={idx === 0}
+              />
+            ))}
+            <div ref={sentinelRef} style={{ height: 1 }} />
+            <p className="muted" style={{ textAlign: 'center', marginTop: '2rem' }}>
+              Keep scrolling: next chapter loads quietly.
+            </p>
+          </main>
+        )}
+      </div>
       <WordPanel target={panel} onClose={() => setPanel(null)} />
     </div>
   )

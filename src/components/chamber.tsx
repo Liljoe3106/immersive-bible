@@ -102,6 +102,7 @@ export function Chamber() {
   const setLayoutMode = useAppStore((s) => s.setLayoutMode)
   const chamberResumeAt = useAppStore((s) => s.chamberResumeAt)
   const setChamberResumeAt = useAppStore((s) => s.setChamberResumeAt)
+  const armReaderSettle = useAppStore((s) => s.armReaderSettle)
   const { label: soundLabel, toggle: toggleSound, active: soundActive } = useAmbientSound()
 
   const homeRef = useRef<HTMLVideoElement>(null)
@@ -453,6 +454,7 @@ export function Chamber() {
     setVeil(true)
     setLayoutMode('book')
     setChamberResumeAt(null)
+    armReaderSettle()
     unduckAmbient(1200)
     const { book, chapter } = place
     const nav = () => {
