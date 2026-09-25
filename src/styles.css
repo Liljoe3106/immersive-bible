@@ -92,6 +92,7 @@ button { font: inherit; cursor: pointer; }
 }
 .chamber-open-still.is-on {
   opacity: 1;
+  transition: opacity 280ms ease;
 }
 .chamber-open-still.is-zooming {
   animation: chamber-open-still-zoom 3.4s ease-out forwards;
@@ -100,7 +101,7 @@ button { font: inherit; cursor: pointer; }
   from { transform: scale(1); }
   to { transform: scale(1.22); }
 }
-/* Brief cream flash between hard-cut stills so cuts are unmistakable. */
+/* Cream overlay reserved for cream-only fallback (not between still frames). */
 .chamber-still-flash {
   position: absolute;
   inset: 0;
@@ -108,7 +109,7 @@ button { font: inherit; cursor: pointer; }
   pointer-events: none;
   opacity: 0;
   background: #efe6d8;
-  transition: opacity 60ms linear;
+  transition: opacity 120ms linear;
 }
 .chamber-still-flash.is-on {
   opacity: 1;

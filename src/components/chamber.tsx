@@ -12,7 +12,7 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open.mp4?v=stills4'
+const OPEN_SRC = '/chamber/open.mp4?v=pullv2'
 const POSTER = '/chamber/poster.jpg?v=v3c1'
 /** Network paths (cache-bust). Prefer blob object URLs once prefetched. */
 const OPEN_STILLS_PATHS = {
@@ -27,28 +27,30 @@ const HOME_XFADE_LEAD_S = 1.65
 const HOME_XFADE_MS = 1600
 /** Max ritual wall-clock once open film or stills have started. */
 const FAILSAFE_MS = 20000
-/** If blob open video stuck on first frame after play begun. */
-const STUCK_FRAME_MS = 1500
-/** If currentTime never advances after play() → stills. */
-const STUCK_ZERO_MS = 800
+/** Stuck open video: only switch to stills if paused near t=0 after this long. */
+const STUCK_PAUSED_MS = 2000
+/** Wait for open.mp4 before unlocking Continue via stills alone. */
+const OPEN_PREFER_WAIT_MS = 11000
+/** On Continue click: wait this long for in-flight open blob before stills. */
+const OPEN_CLICK_WAIT_MS = 6000
 const VEIL_LEAD_S = 0.9
 /** Match .chamber-veil transition (850ms) + small settle so nav is fully opaque. */
 const NAV_AFTER_VEIL_MS = 900
 const VEIL_TRANSITION_MS = 850
 /** Cream-only fallback when neither open blob nor stills are available. */
 const CREAM_ONLY_MS = 700
-/** Hard-cut stills timings (full ritual). Closed brief — looks like home video. */
+/** Stills fallback timings (last resort). Soft opacity crossfade between frames. */
 const STILL_CLOSED_MS = 350
 const STILL_HALF_MS = 1000
 const STILL_OPEN_MS = 3400
 const STILL_PARCHMENT_MS = 3000
-const STILL_FLASH_MS = 200
-/** Short hard-cut timings under prefers-reduced-motion (no CSS zoom). */
+const STILL_XFADE_MS = 280
+/** Short timings under prefers-reduced-motion (no CSS zoom). */
 const STILL_RM_CLOSED_MS = 200
 const STILL_RM_HALF_MS = 450
 const STILL_RM_OPEN_MS = 700
 const STILL_RM_PARCHMENT_MS = 550
-const STILL_RM_FLASH_MS = 120
+const STILL_RM_XFADE_MS = 160
 /** Dual-home B after idle if blob never arrives. */
 const HOME_B_IDLE_MS = 8000
 
@@ -119,6 +121,10 @@ export function Chamber() {
   const [, setMediaReady] = useState(false)
   const [openReady, setOpenReady] = useState(false)
   const [stillsReady, setStillsReady] = useState(false)
+  /** Open fetch failed — stills may unlock Continue immediately. */
+  const [openFailed, setOpenFailed] = useState(false)
+  /** After prefer-wait, stills alone may unlock Continue. */
+  const [allowStillsContinue, setAllowStillsContinue] = useState(false)
   const [idleDim, setIdleDim] = useState(false)
   const [homeFront, setHomeFront] = useState(0)
   const [allowHomeB, setAllowHomeB] = useState(false)
@@ -137,6 +143,7 @@ export function Chamber() {
   const failsafeTimer = useRef(0)
   const stillsTimers = useRef<number[]>([])
   const openBlobUrlRef = useRef<string | null>(null)
+  const openFailedRef = useRef(false)
   const stillBlobUrlsRef = useRef<string[]>([])
   const stillUrlsRef = useRef<StillUrlMap | null>(null)
 
@@ -198,6 +205,11 @@ export function Chamber() {
         setAllowHomeB(true)
       } catch {
         // Blob unavailable: stills path only. Do not set network src.
+        if (!cancelled) {
+          openFailedRef.current = true
+          setOpenFailed(true)
+          setAllowStillsContinue(true)
+        }
       }
     }
     void runOpen()
@@ -240,10 +252,16 @@ export function Chamber() {
       if (!cancelled) setAllowHomeB(true)
     }, HOME_B_IDLE_MS)
 
+    // Prefer open.mp4: only unlock Continue via stills after wait (or open fail).
+    const preferWait = window.setTimeout(() => {
+      if (!cancelled) setAllowStillsContinue(true)
+    }, OPEN_PREFER_WAIT_MS)
+
     return () => {
       cancelled = true
       ac.abort()
       window.clearTimeout(idleB)
+      window.clearTimeout(preferWait)
       if (objectUrl) {
         try {
           URL.revokeObjectURL(objectUrl)
@@ -506,14 +524,10 @@ export function Chamber() {
     window.setTimeout(nav, NAV_AFTER_VEIL_MS)
   }
 
-  const flashThen = (next: StillFrame, flashMs: number) => {
-    setStillFlash(true)
-    stillsTimers.current.push(
-      window.setTimeout(() => {
-        setStillFrame(next)
-        setStillFlash(false)
-      }, flashMs),
-    )
+  /** Soft frame change for stills fallback — no cream hard-flash between cuts. */
+  const crossfadeStill = (next: StillFrame, _xfadeMs: number) => {
+    setStillFlash(false)
+    setStillFrame(next)
   }
 
   /** Cream veil beat when neither open blob nor stills are available. Never zero. */
@@ -544,7 +558,7 @@ export function Chamber() {
     stillsStarted.current = true
     openPlayBegun.current = true // cancel video path racing in
     const short = !!opts?.short || prefersReducedMotion()
-    const flashMs = short ? STILL_RM_FLASH_MS : STILL_FLASH_MS
+    const xfadeMs = short ? STILL_RM_XFADE_MS : STILL_XFADE_MS
     const closedMs = short ? STILL_RM_CLOSED_MS : STILL_CLOSED_MS
     const halfMs = short ? STILL_RM_HALF_MS : STILL_HALF_MS
     const openMs = short ? STILL_RM_OPEN_MS : STILL_OPEN_MS
@@ -554,9 +568,8 @@ export function Chamber() {
     setOpenVisible(false)
     setOpening(true)
     setStillsActive(true)
-    // Cream flash first so cut is unmistakable vs home video (closed ≈ home).
-    setStillFrame(null)
-    setStillFlash(true)
+    setStillFlash(false)
+    setStillFrame('closed')
     markRitualShown()
 
     // Hide / pause open video so frozen closed frame cannot cover stills.
@@ -573,31 +586,32 @@ export function Chamber() {
       stillsTimers.current.push(window.setTimeout(fn, ms))
     }
 
-    // Brief closed (≤400ms) after cream, then half → open → parchment.
-    let t = flashMs
-    schedule(t, () => {
-      setStillFrame('closed')
-      setStillFlash(false)
-    })
-    t += closedMs
-    schedule(t, () => flashThen('half', flashMs))
-    t += halfMs + flashMs
-    schedule(t, () => flashThen('open', flashMs))
-    t += openMs + flashMs
-    schedule(t, () => flashThen('parchment', flashMs))
-    t += parchMs + flashMs
+    // Soft cuts: closed → half → open → parchment (no cream hard flashes).
+    let t = closedMs
+    schedule(t, () => crossfadeStill('half', xfadeMs))
+    t += halfMs + xfadeMs
+    schedule(t, () => crossfadeStill('open', xfadeMs))
+    t += openMs + xfadeMs
+    schedule(t, () => crossfadeStill('parchment', xfadeMs))
+    t += parchMs + xfadeMs
     schedule(t, () => {
       setVeil(true)
       window.setTimeout(() => goRead(), VEIL_TRANSITION_MS + 40)
     })
   }
 
+  const fallBackToStillsOrCream = () => {
+    if (stillsStarted.current || navigated.current) return
+    if (stillsReady || stillUrlsRef.current) runStillsRitual()
+    else runCreamOnly()
+  }
+
   const startOpen = () => {
     if (opening || openStarted.current) return
-    // Unblocked by stills OR blob-ready open — do NOT require home.mp4.
-    // If neither ready yet, Continue stays disabled (canContinue). Cream path is
-    // only for mid-ritual fallback when assets vanish.
-    if (!openReady && !stillsReady) return
+    // Prefer openReady; stills alone only after open fail or prefer-wait.
+    const stillsOk =
+      stillsReady && (openFailed || allowStillsContinue)
+    if (!openReady && !stillsOk) return
     openStarted.current = true
     openPlayBegun.current = false
     ritualShown.current = false
@@ -607,24 +621,52 @@ export function Chamber() {
     startAmbient()
     duckAmbient(0.18, 400)
 
-    // Reduced motion: SHORT stills ritual (hard cuts, no CSS zoom). Never instant skip.
+    // Reduced motion: SHORT stills (or cream). Never instant skip.
     if (prefersReducedMotion()) {
       if (stillsReady || stillUrlsRef.current) {
         runStillsRitual({ short: true })
+      } else if (openBlobUrlRef.current && openRef.current) {
+        // No stills: shortened continuous video is fine under RM.
+        void playOpenVideo()
       } else {
         runCreamOnly()
       }
       return
     }
 
-    const open = openRef.current
-    const blobReady =
-      !!openBlobUrl && !!open && open.readyState >= 2
+    void playOpenVideo()
+  }
 
-    // Prefer blob open.mp4 when fully ready; else stills (or cream).
-    if (!blobReady) {
-      if (stillsReady || stillUrlsRef.current) runStillsRitual()
-      else runCreamOnly()
+  /** Video-first continuous open. Stills only if video truly unavailable. */
+  const playOpenVideo = async () => {
+    const isBlobReady = () => {
+      const open = openRef.current
+      return !!openBlobUrlRef.current && !!open && open.readyState >= 2
+    }
+
+    if (!isBlobReady()) {
+      // Fetch in flight: wait up to OPEN_CLICK_WAIT_MS before stills.
+      if (!openFailedRef.current) {
+        const waitStart = Date.now()
+        while (
+          !isBlobReady() &&
+          !openFailedRef.current &&
+          Date.now() - waitStart < OPEN_CLICK_WAIT_MS &&
+          !stillsStarted.current &&
+          !navigated.current
+        ) {
+          await new Promise<void>((r) => window.setTimeout(r, 120))
+        }
+      }
+      if (!isBlobReady()) {
+        fallBackToStillsOrCream()
+        return
+      }
+    }
+
+    const open = openRef.current
+    if (!open) {
+      fallBackToStillsOrCream()
       return
     }
 
@@ -643,46 +685,47 @@ export function Chamber() {
         /* */
       }
       setOpenVisible(false)
-      if (stillsReady || stillUrlsRef.current) runStillsRitual()
-      else runCreamOnly()
+      fallBackToStillsOrCream()
     }
 
-    const beginOpenPlayback = () => {
-      if (openPlayBegun.current || stillsStarted.current) return
-      if (open.readyState < 2) {
-        switchToStills()
-        return
-      }
-      openPlayBegun.current = true
-      open.loop = false
-      try {
-        open.currentTime = 0
-      } catch {
-        /* */
-      }
-      showOpen()
+    let playRejects = 0
+    const tryPlay = (): Promise<void> => {
       const playP = open.play()
       if (playP && typeof playP.then === 'function') {
-        playP.catch(() => {
-          switchToStills()
+        return playP.catch(() => {
+          playRejects += 1
+          if (playRejects >= 2) {
+            switchToStills()
+            return
+          }
+          return tryPlay()
         })
       }
-
-      // Stuck at ~0 after play → stills.
-      window.setTimeout(() => {
-        if (stillsStarted.current || navigated.current) return
-        if (open.currentTime < 0.05) switchToStills()
-      }, STUCK_ZERO_MS)
-
-      // Stuck first frame / paused after begun → stills.
-      window.setTimeout(() => {
-        if (stillsStarted.current || navigated.current) return
-        if (!openPlayBegun.current) return
-        if (open.paused || open.currentTime < 0.15) switchToStills()
-      }, STUCK_FRAME_MS)
+      return Promise.resolve()
     }
 
-    beginOpenPlayback()
+    if (openPlayBegun.current || stillsStarted.current) return
+    if (open.readyState < 2) {
+      switchToStills()
+      return
+    }
+    openPlayBegun.current = true
+    open.loop = false
+    try {
+      open.currentTime = 0
+    } catch {
+      /* */
+    }
+    showOpen()
+    void tryPlay()
+
+    // Soft stuck check: only if paused AND near t=0 after 2s.
+    // Never yank a playing video that has advanced into JPEG stills.
+    window.setTimeout(() => {
+      if (stillsStarted.current || navigated.current) return
+      if (!openPlayBegun.current) return
+      if (open.paused && open.currentTime < 0.05) switchToStills()
+    }, STUCK_PAUSED_MS)
 
     let veilArmed = false
     const armVeilEarly = () => {
@@ -720,8 +763,9 @@ export function Chamber() {
     softLeave('/search', q ? { q } : undefined)
   }
 
-  // Continue does NOT require home.mp4 — tunnel often cancels it.
-  const canContinue = openReady || stillsReady
+  // Prefer open.mp4; stills alone only after open fail or prefer-wait.
+  const canContinue =
+    openReady || ((openFailed || allowStillsContinue) && stillsReady)
   const homesHidden = openVisible || stillsActive
 
   const stillSrc =
