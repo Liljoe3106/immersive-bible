@@ -12,13 +12,14 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open.mp4?v=stills3'
+const OPEN_SRC = '/chamber/open.mp4?v=stills4'
 const POSTER = '/chamber/poster.jpg?v=v3c1'
-const OPEN_STILLS = {
-  closed: '/chamber/open-stills/closed-best.jpg?v=stills3',
-  half: '/chamber/open-stills/half-best.jpg?v=stills3',
-  open: '/chamber/open-stills/open-best.jpg?v=stills3',
-  parchment: '/chamber/open-stills/blank-parchment-best.jpg?v=stills3',
+/** Network paths (cache-bust). Prefer blob object URLs once prefetched. */
+const OPEN_STILLS_PATHS = {
+  closed: '/chamber/open-stills/closed-best.jpg?v=stills4',
+  half: '/chamber/open-stills/half-best.jpg?v=stills4',
+  open: '/chamber/open-stills/open-best.jpg?v=stills4',
+  parchment: '/chamber/open-stills/blank-parchment-best.jpg?v=stills4',
 } as const
 /** Start the back home clip this far before the front ends. */
 const HOME_XFADE_LEAD_S = 1.65
@@ -34,16 +35,25 @@ const VEIL_LEAD_S = 0.9
 /** Match .chamber-veil transition (850ms) + small settle so nav is fully opaque. */
 const NAV_AFTER_VEIL_MS = 900
 const VEIL_TRANSITION_MS = 850
-/** Hard-cut stills timings (match open-pull-stills-v2 recipe). */
-const STILL_CLOSED_MS = 1400
+/** Cream-only fallback when neither open blob nor stills are available. */
+const CREAM_ONLY_MS = 700
+/** Hard-cut stills timings (full ritual). Closed brief — looks like home video. */
+const STILL_CLOSED_MS = 350
 const STILL_HALF_MS = 1000
 const STILL_OPEN_MS = 3400
 const STILL_PARCHMENT_MS = 3000
 const STILL_FLASH_MS = 200
+/** Short hard-cut timings under prefers-reduced-motion (no CSS zoom). */
+const STILL_RM_CLOSED_MS = 200
+const STILL_RM_HALF_MS = 450
+const STILL_RM_OPEN_MS = 700
+const STILL_RM_PARCHMENT_MS = 550
+const STILL_RM_FLASH_MS = 120
 /** Dual-home B after idle if blob never arrives. */
 const HOME_B_IDLE_MS = 8000
 
 type StillFrame = 'closed' | 'half' | 'open' | 'parchment'
+type StillUrlMap = Record<StillFrame, string>
 
 function prefersReducedMotion() {
   try {
@@ -53,13 +63,35 @@ function prefersReducedMotion() {
   }
 }
 
-function preloadImage(src: string): Promise<void> {
+/** Resolve only on successful decode — never treat onerror as ready. */
+function loadImageOk(src: string): Promise<boolean> {
   return new Promise((resolve) => {
     const img = new Image()
-    img.onload = () => resolve()
-    img.onerror = () => resolve()
+    img.onload = () => resolve(true)
+    img.onerror = () => resolve(false)
     img.src = src
   })
+}
+
+async function fetchImageBlobUrl(
+  src: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const res = await fetch(src, { signal, cache: 'force-cache' })
+  if (!res.ok) throw new Error(`still fetch ${res.status}`)
+  const buf = await res.arrayBuffer()
+  const blob = new Blob([buf], { type: 'image/jpeg' })
+  const url = URL.createObjectURL(blob)
+  const ok = await loadImageOk(url)
+  if (!ok) {
+    try {
+      URL.revokeObjectURL(url)
+    } catch {
+      /* */
+    }
+    throw new Error('still decode failed')
+  }
+  return url
 }
 
 export function Chamber() {
@@ -91,6 +123,7 @@ export function Chamber() {
   const [allowHomeB, setAllowHomeB] = useState(false)
   const [homeSrcActive, setHomeSrcActive] = useState(false)
   const [openBlobUrl, setOpenBlobUrl] = useState<string | null>(null)
+  const [stillUrls, setStillUrls] = useState<StillUrlMap | null>(null)
   const [stillsActive, setStillsActive] = useState(false)
   const [stillFrame, setStillFrame] = useState<StillFrame | null>(null)
   const [stillFlash, setStillFlash] = useState(false)
@@ -103,6 +136,8 @@ export function Chamber() {
   const failsafeTimer = useRef(0)
   const stillsTimers = useRef<number[]>([])
   const openBlobUrlRef = useRef<string | null>(null)
+  const stillBlobUrlsRef = useRef<string[]>([])
+  const stillUrlsRef = useRef<StillUrlMap | null>(null)
 
   const visibleHome = () =>
     homeFrontRef.current === 1 ? homeBRef.current : homeRef.current
@@ -143,13 +178,13 @@ export function Chamber() {
     bindAmbientGesture()
   }, [audioMuted, touchDay])
 
-  // Prefetch open.mp4 as Blob ONLY — never assign network OPEN_SRC to <video>.
+  // Prefetch open.mp4 + open-stills as Blobs — never assign network OPEN_SRC to <video>.
   useEffect(() => {
     let cancelled = false
     let objectUrl: string | null = null
     const ac = new AbortController()
 
-    const run = async () => {
+    const runOpen = async () => {
       try {
         const res = await fetch(OPEN_SRC, { signal: ac.signal, cache: 'force-cache' })
         if (!res.ok) throw new Error(`open fetch ${res.status}`)
@@ -162,21 +197,42 @@ export function Chamber() {
         setAllowHomeB(true)
       } catch {
         // Blob unavailable: stills path only. Do not set network src.
-        if (!cancelled) {
-          /* allowHomeB armed by idle timer below */
-        }
       }
     }
-    void run()
+    void runOpen()
 
-    void Promise.all([
-      preloadImage(OPEN_STILLS.closed),
-      preloadImage(OPEN_STILLS.half),
-      preloadImage(OPEN_STILLS.open),
-      preloadImage(OPEN_STILLS.parchment),
-    ]).then(() => {
-      if (!cancelled) setStillsReady(true)
-    })
+    const runStills = async () => {
+      try {
+        const keys = ['closed', 'half', 'open', 'parchment'] as const
+        const urls = await Promise.all(
+          keys.map((k) => fetchImageBlobUrl(OPEN_STILLS_PATHS[k], ac.signal)),
+        )
+        if (cancelled) {
+          for (const u of urls) {
+            try {
+              URL.revokeObjectURL(u)
+            } catch {
+              /* */
+            }
+          }
+          return
+        }
+        const map: StillUrlMap = {
+          closed: urls[0],
+          half: urls[1],
+          open: urls[2],
+          parchment: urls[3],
+        }
+        stillBlobUrlsRef.current = urls
+        stillUrlsRef.current = map
+        setStillUrls(map)
+        setStillsReady(true)
+      } catch {
+        // Tunnel/fetch fail: do NOT mark ready (broken imgs would look like "no change").
+        if (!cancelled) setStillsReady(false)
+      }
+    }
+    void runStills()
 
     // Dual-home B after idle if blob never arrives (tunnel cancel).
     const idleB = window.setTimeout(() => {
@@ -195,6 +251,15 @@ export function Chamber() {
         }
       }
       openBlobUrlRef.current = null
+      for (const u of stillBlobUrlsRef.current) {
+        try {
+          URL.revokeObjectURL(u)
+        } catch {
+          /* */
+        }
+      }
+      stillBlobUrlsRef.current = []
+      stillUrlsRef.current = null
     }
   }, [])
 
@@ -439,26 +504,57 @@ export function Chamber() {
     window.setTimeout(nav, NAV_AFTER_VEIL_MS)
   }
 
-  const flashThen = (next: StillFrame) => {
+  const flashThen = (next: StillFrame, flashMs: number) => {
     setStillFlash(true)
     stillsTimers.current.push(
       window.setTimeout(() => {
         setStillFrame(next)
         setStillFlash(false)
-      }, STILL_FLASH_MS),
+      }, flashMs),
     )
   }
 
-  const runStillsRitual = () => {
+  /** Cream veil beat when neither open blob nor stills are available. Never zero. */
+  const runCreamOnly = () => {
     if (stillsStarted.current || navigated.current) return
     stillsStarted.current = true
-    openPlayBegun.current = true // cancel video path racing in
+    openPlayBegun.current = true
     pauseBothHomes()
     setOpenVisible(false)
     setOpening(true)
     setStillsActive(true)
-    setStillFrame('closed')
-    setStillFlash(false)
+    setStillFrame(null)
+    setStillFlash(true)
+    markRitualShown()
+    setVeil(true)
+    stillsTimers.current.push(
+      window.setTimeout(() => goRead(), Math.max(CREAM_ONLY_MS, VEIL_TRANSITION_MS + 40)),
+    )
+  }
+
+  const runStillsRitual = (opts?: { short?: boolean }) => {
+    if (stillsStarted.current || navigated.current) return
+    const urls = stillUrlsRef.current
+    if (!urls && !stillsReady) {
+      runCreamOnly()
+      return
+    }
+    stillsStarted.current = true
+    openPlayBegun.current = true // cancel video path racing in
+    const short = !!opts?.short || prefersReducedMotion()
+    const flashMs = short ? STILL_RM_FLASH_MS : STILL_FLASH_MS
+    const closedMs = short ? STILL_RM_CLOSED_MS : STILL_CLOSED_MS
+    const halfMs = short ? STILL_RM_HALF_MS : STILL_HALF_MS
+    const openMs = short ? STILL_RM_OPEN_MS : STILL_OPEN_MS
+    const parchMs = short ? STILL_RM_PARCHMENT_MS : STILL_PARCHMENT_MS
+
+    pauseBothHomes()
+    setOpenVisible(false)
+    setOpening(true)
+    setStillsActive(true)
+    // Cream flash first so cut is unmistakable vs home video (closed ≈ home).
+    setStillFrame(null)
+    setStillFlash(true)
     markRitualShown()
 
     // Hide / pause open video so frozen closed frame cannot cover stills.
@@ -475,13 +571,19 @@ export function Chamber() {
       stillsTimers.current.push(window.setTimeout(fn, ms))
     }
 
-    let t = STILL_CLOSED_MS
-    schedule(t, () => flashThen('half'))
-    t += STILL_HALF_MS + STILL_FLASH_MS
-    schedule(t, () => flashThen('open'))
-    t += STILL_OPEN_MS + STILL_FLASH_MS
-    schedule(t, () => flashThen('parchment'))
-    t += STILL_PARCHMENT_MS + STILL_FLASH_MS
+    // Brief closed (≤400ms) after cream, then half → open → parchment.
+    let t = flashMs
+    schedule(t, () => {
+      setStillFrame('closed')
+      setStillFlash(false)
+    })
+    t += closedMs
+    schedule(t, () => flashThen('half', flashMs))
+    t += halfMs + flashMs
+    schedule(t, () => flashThen('open', flashMs))
+    t += openMs + flashMs
+    schedule(t, () => flashThen('parchment', flashMs))
+    t += parchMs + flashMs
     schedule(t, () => {
       setVeil(true)
       window.setTimeout(() => goRead(), VEIL_TRANSITION_MS + 40)
@@ -491,7 +593,9 @@ export function Chamber() {
   const startOpen = () => {
     if (opening || openStarted.current) return
     // Unblocked by stills OR blob-ready open — do NOT require home.mp4.
-    if (!openReady && !stillsReady && !prefersReducedMotion()) return
+    // If neither ready yet, Continue stays disabled (canContinue). Cream path is
+    // only for mid-ritual fallback when assets vanish.
+    if (!openReady && !stillsReady) return
     openStarted.current = true
     openPlayBegun.current = false
     ritualShown.current = false
@@ -501,9 +605,13 @@ export function Chamber() {
     startAmbient()
     duckAmbient(0.18, 400)
 
+    // Reduced motion: SHORT stills ritual (hard cuts, no CSS zoom). Never instant skip.
     if (prefersReducedMotion()) {
-      setVeil(true)
-      window.setTimeout(() => goRead(), VEIL_TRANSITION_MS + 40)
+      if (stillsReady || stillUrlsRef.current) {
+        runStillsRitual({ short: true })
+      } else {
+        runCreamOnly()
+      }
       return
     }
 
@@ -511,9 +619,10 @@ export function Chamber() {
     const blobReady =
       !!openBlobUrl && !!open && open.readyState >= 2
 
-    // Prefer stills whenever blob is missing / not ready — no wait.
+    // Prefer blob open.mp4 when fully ready; else stills (or cream).
     if (!blobReady) {
-      runStillsRitual()
+      if (stillsReady || stillUrlsRef.current) runStillsRitual()
+      else runCreamOnly()
       return
     }
 
@@ -532,7 +641,8 @@ export function Chamber() {
         /* */
       }
       setOpenVisible(false)
-      runStillsRitual()
+      if (stillsReady || stillUrlsRef.current) runStillsRitual()
+      else runCreamOnly()
     }
 
     const beginOpenPlayback = () => {
@@ -610,24 +720,21 @@ export function Chamber() {
 
   // Continue does NOT require home.mp4 — tunnel often cancels it.
   const canContinue = openReady || stillsReady
-  const fadingHomes = openVisible || stillsActive
+  const homesHidden = openVisible || stillsActive
 
   const stillSrc =
-    stillFrame === 'closed'
-      ? OPEN_STILLS.closed
-      : stillFrame === 'half'
-        ? OPEN_STILLS.half
-        : stillFrame === 'open'
-          ? OPEN_STILLS.open
-          : stillFrame === 'parchment'
-            ? OPEN_STILLS.parchment
-            : null
+    stillFrame && stillUrls
+      ? stillUrls[stillFrame]
+      : stillFrame
+        ? OPEN_STILLS_PATHS[stillFrame]
+        : null
+  const stillZoom = stillFrame === 'open' && !reducedMotion
 
   return (
     <div className={`chamber-root${idleDim ? ' is-idle' : ''}`}>
       <video
         ref={homeRef}
-        className={`chamber-video chamber-video-home${homeFront === 0 ? ' is-front' : ''}${fadingHomes ? ' is-fading' : ''}`}
+        className={`chamber-video chamber-video-home${homeFront === 0 ? ' is-front' : ''}${homesHidden ? ' is-hidden' : ''}`}
         {...(homeSrcActive ? { src: HOME_SRC } : {})}
         poster={POSTER}
         autoPlay={homeSrcActive}
@@ -640,7 +747,7 @@ export function Chamber() {
       {!reducedMotion && allowHomeB && homeSrcActive && (
         <video
           ref={homeBRef}
-          className={`chamber-video chamber-video-home${homeFront === 1 ? ' is-front' : ''}${fadingHomes ? ' is-fading' : ''}`}
+          className={`chamber-video chamber-video-home${homeFront === 1 ? ' is-front' : ''}${homesHidden ? ' is-hidden' : ''}`}
           src={HOME_SRC}
           muted
           playsInline
@@ -661,7 +768,7 @@ export function Chamber() {
       />
       {stillsActive && stillSrc && (
         <img
-          className={`chamber-open-still is-on${stillFrame === 'open' ? ' is-zooming' : ''}`}
+          className={`chamber-open-still is-on${stillZoom ? ' is-zooming' : ''}`}
           src={stillSrc}
           alt=""
           draggable={false}

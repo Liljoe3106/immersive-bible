@@ -60,6 +60,13 @@ button { font: inherit; cursor: pointer; }
   opacity: 0;
   transition: opacity 420ms ease;
 }
+/* Hard hide during open ritual — stills/video must fully cover home (not mild fade). */
+.chamber-video-home.is-hidden {
+  opacity: 0 !important;
+  transition: none !important;
+  visibility: hidden;
+  pointer-events: none;
+}
 .chamber-video-open {
   opacity: 0;
   z-index: 3;
@@ -1287,5 +1294,10 @@ button { font: inherit; cursor: pointer; }
   .reader-top {
     transition: none !important;
     animation: none !important;
+  }
+  /* Stills ritual uses hard cuts only — never CSS zoom under reduced motion. */
+  .chamber-open-still.is-zooming {
+    animation: none !important;
+    transform: none !important;
   }
 }
