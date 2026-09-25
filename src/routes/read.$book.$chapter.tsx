@@ -325,14 +325,21 @@ function ReaderPage() {
     <div
       className={`reader-shell${isBook ? ' reader-shell-book' : ''}${chromeHidden ? ' chrome-hidden' : ''}${handoffOn ? ' has-handoff' : ''}${handoffOn && !handoffFading ? ' handoff-chrome-in' : ''}`}
     >
-      {handoffOn && handoffUrl ? (
-        <img
-          className={`reader-handoff-underlay${handoffFading ? ' is-fading' : ''}`}
-          src={handoffUrl}
-          alt=""
-          aria-hidden
-          draggable={false}
-        />
+      {handoffOn ? (
+        handoffUrl ? (
+          <img
+            className={`reader-handoff-underlay${handoffFading ? ' is-fading' : ''}`}
+            src={handoffUrl}
+            alt=""
+            aria-hidden
+            draggable={false}
+          />
+        ) : (
+          <div
+            className={`reader-handoff-underlay${handoffFading ? ' is-fading' : ''}`}
+            aria-hidden
+          />
+        )
       ) : null}
       <header className="reader-top">
         <div className="reader-top-side reader-top-view">

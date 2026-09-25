@@ -51,3 +51,10 @@ Rebuilt chamber OPEN from locked stills as `immersive-bible-assets/imagine/v3/op
 - Live `open.mp4` replaced with continuous closed→hinge→parchment from `imagine/v2/open-pull-best.mp4`, re-encoded with last 0.8s soft xfade to solid `#efe6d8` (`imagine/v4/open-pull-v4.mp4`, ~10.04s, ~6.3MB). Cache `OPEN_SRC ?v=pullv4`.
 - Rejected for ship: `open-pull-v3.mp4` (morph/jump), `open-pull-stills-v3` (Ken Burns). Recipe: `imagine/v4/open-pull-v4-recipe.txt`. Notes: `imagine/v4/NOTES.md`.
 - Video Continue path: capture last decoded frame → session `openHandoffFrame`; `goRead({ seamless: true })` skips cream veil; reader shows fixed full-bleed underlay then soft-fades to live vellum (~1.2s + 1.1s fade). Stills/cream-only and `softLeave` still use the soft veil.
+
+
+## 2026-09-25 open-pull-v4b (iteration 2 — full-bleed cream)
+- PASS 1 QA failed on pullv4: ending not true full-bleed (gutter/edges); center ~231,221,202 vs #efe6d8; frozen candles / page-turn morph noted on source.
+- Rebuilt from `imagine/v2/open-pull-alt-1.mp4` (cleaner full-bleed push than best) with aggressive ease-in zoompan from ~7.5s into right-page center, 1.15s xfade to solid `#efe6d8`, ≥0.6s cream hold → `imagine/v4/open-pull-v4b.mp4` (~12.92s, ~6.35MB). Last-frame mean/center RGB (238,229,216).
+- Installed `public/chamber/open.mp4?v=pullv4b`. Handoff capture only in cream tail (`currentTime > duration-0.35` / `ended`); cream CSS/dataURL fallback if capture fails.
+- Recipe: `imagine/v4/open-pull-v4b-recipe.txt`. Notes: `imagine/v4/NOTES.md`.

@@ -289,9 +289,9 @@ button { font: inherit; cursor: pointer; }
   color: var(--ink);
   font-family: var(--serif-body);
 }
-/* While last open-frame underlay is up: no second cream pop under it. */
+/* While handoff underlay is up: solid #efe6d8 base if capture missing/fails. */
 .reader-shell.has-handoff {
-  background: transparent;
+  background: #efe6d8;
 }
 .reader-shell.has-handoff .book-reader {
   background: transparent;
@@ -307,6 +307,7 @@ button { font: inherit; cursor: pointer; }
   pointer-events: none;
   opacity: 1;
   transition: opacity 1.1s ease;
+  background: #efe6d8;
 }
 .reader-handoff-underlay.is-fading {
   opacity: 0;

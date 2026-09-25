@@ -12,7 +12,7 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open.mp4?v=pullv4'
+const OPEN_SRC = '/chamber/open.mp4?v=pullv4b'
 const POSTER = '/chamber/poster.jpg?v=v3c1'
 /** Network paths (cache-bust). Prefer blob object URLs once prefetched. */
 const OPEN_STILLS_PATHS = {
@@ -80,6 +80,22 @@ function captureVideoFrame(video: HTMLVideoElement): string | null {
     return canvas.toDataURL('image/jpeg', 0.92)
   } catch {
     return null
+  }
+}
+
+/** Solid #efe6d8 frame when video capture fails — keeps seamless goRead cream-matched. */
+function creamHandoffDataUrl(): string {
+  try {
+    const canvas = document.createElement('canvas')
+    canvas.width = 16
+    canvas.height = 16
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return ''
+    ctx.fillStyle = '#efe6d8'
+    ctx.fillRect(0, 0, 16, 16)
+    return canvas.toDataURL('image/jpeg', 1)
+  } catch {
+    return ''
   }
 }
 
@@ -753,10 +769,11 @@ export function Chamber() {
     }, STUCK_PAUSED_MS)
 
     let handoffArmed = false
-    const captureHandoff = (force = false) => {
+    const captureHandoff = (force = false, allowCreamFallback = false) => {
       if (navigated.current || stillsStarted.current) return
       if (handoffArmed && !force) return
-      const url = captureVideoFrame(open)
+      // Prefer the solid-cream tail frame; fall back to #efe6d8 so seamless never flashes veil.
+      const url = captureVideoFrame(open) || (allowCreamFallback ? creamHandoffDataUrl() : null)
       if (!url) return
       handoffArmed = true
       setOpenHandoffFrame(url)
@@ -765,16 +782,16 @@ export function Chamber() {
       if (navigated.current || stillsStarted.current) return
       const dur = open.duration
       if (!Number.isFinite(dur) || dur <= 0) return
-      // Prefetch underlay near the end; ended handler refreshes to the true last frame.
-      if (dur - open.currentTime <= 0.2) captureHandoff(false)
+      // Capture only in the solid-cream hold (not mid-zoom). Ended refreshes last frame.
+      if (open.currentTime > dur - 0.35) captureHandoff(false)
     }
     const onTime = () => armHandoffEarly()
     open.addEventListener('timeupdate', onTime)
     const onEnded = () => {
       if (stillsStarted.current) return
       open.removeEventListener('timeupdate', onTime)
-      captureHandoff(true)
-      // Navigate without cream veil; reader mounts last-frame underlay.
+      captureHandoff(true, true)
+      // Seamless even if capture failed (cream fallback underlay / CSS #efe6d8).
       goRead({ seamless: true })
     }
     open.addEventListener('ended', onEnded, { once: true })
