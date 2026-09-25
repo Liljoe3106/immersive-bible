@@ -12,7 +12,7 @@ import {
 import { useAmbientSound } from '../hooks/use-ambient-label'
 
 const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open.mp4?v=pullv4b'
+const OPEN_SRC = '/chamber/open.mp4?v=pullv4c'
 const POSTER = '/chamber/poster.jpg?v=v3c1'
 /** Network paths (cache-bust). Prefer blob object URLs once prefetched. */
 const OPEN_STILLS_PATHS = {
