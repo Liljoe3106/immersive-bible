@@ -58,3 +58,11 @@ Rebuilt chamber OPEN from locked stills as `immersive-bible-assets/imagine/v3/op
 - Rebuilt from `imagine/v2/open-pull-alt-1.mp4` (cleaner full-bleed push than best) with aggressive ease-in zoompan from ~7.5s into right-page center, 1.15s xfade to solid `#efe6d8`, ≥0.6s cream hold → `imagine/v4/open-pull-v4b.mp4` (~12.92s, ~6.35MB). Last-frame mean/center RGB (238,229,216).
 - Installed `public/chamber/open.mp4?v=pullv4b`. Handoff capture only in cream tail (`currentTime > duration-0.35` / `ended`); cream CSS/dataURL fallback if capture fails.
 - Recipe: `imagine/v4/open-pull-v4b-recipe.txt`. Notes: `imagine/v4/NOTES.md`.
+
+## 2026-09-25 open-pull-v5 (continuous zoom — no wing / no flip)
+- Joe rejected pullv4c: still felt like flip-book with cover WING (alt-1 morph).
+- Rebuilt from stills only: continuous ffmpeg zoompan on `open-best.png` (3× upscale)
+  ease-in into right-page interior → full-bleed parchment → 1.1s xfade to `#efe6d8`
+  + ≥1.3s cream hold. **No** cover hinge, page fan, or AI morph.
+- `imagine/v5/open-pull-v5.mp4` (~7.75s, ~2.13MB). Installed `?v=pullv5`.
+- Capture window unchanged (`dur-0.35` still lands in cream). Recipe/NOTES in `imagine/v5/`.
