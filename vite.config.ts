@@ -29,12 +29,27 @@ function excludeChamberBackup(): Plugin {
   }
 }
 
+/** After build, copy index.html → 404.html so SPA deep links work on GitHub Pages. */
+function spaFallback404(): Plugin {
+  return {
+    name: 'spa-fallback-404',
+    closeBundle() {
+      const index = path.resolve(__dirname, 'dist/index.html')
+      const fallback = path.resolve(__dirname, 'dist/404.html')
+      if (fs.existsSync(index)) fs.copyFileSync(index, fallback)
+    },
+  }
+}
+
+// Set GITHUB_PAGES=true in CI so asset URLs use `/immersive-bible/`. Local dev/build stay at `/`.
 export default defineConfig({
+  base: process.env.GITHUB_PAGES === 'true' ? '/immersive-bible/' : '/',
   plugins: [
     TanStackRouterVite({ target: 'react', autoCodeSplitting: true }),
     react(),
     tailwindcss(),
     excludeChamberBackup(),
+    spaFallback404(),
   ],
   resolve: {
     alias: {

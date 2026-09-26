@@ -1,3 +1,4 @@
+import { asset } from '../asset'
 import type { EnglishChapter, OrigChapter, OrigWord, SearchHit, StrongEntry } from './types'
 
 const enCache = new Map<string, EnglishChapter[]>()
@@ -8,7 +9,7 @@ let searchCache: SearchHit[] | null = null
 export async function loadEnglish(book: string): Promise<EnglishChapter[]> {
   const hit = enCache.get(book)
   if (hit) return hit
-  const res = await fetch(`/data/en/${book}.json`)
+  const res = await fetch(asset(`data/en/${book}.json`))
   if (!res.ok) throw new Error(`Missing English for ${book}`)
   const data = (await res.json()) as EnglishChapter[]
   enCache.set(book, data)
@@ -17,7 +18,7 @@ export async function loadEnglish(book: string): Promise<EnglishChapter[]> {
 
 export async function loadOrig(book: string): Promise<OrigChapter[] | null> {
   if (origCache.has(book)) return origCache.get(book)!
-  const res = await fetch(`/data/orig/${book}.json`)
+  const res = await fetch(asset(`data/orig/${book}.json`))
   if (!res.ok) {
     origCache.set(book, null as unknown as OrigChapter[])
     return null
@@ -39,7 +40,7 @@ export async function loadChapter(
 
 export async function loadStrongs(): Promise<Record<string, StrongEntry>> {
   if (strongsCache) return strongsCache
-  const res = await fetch('/data/strongs.json')
+  const res = await fetch(asset('data/strongs.json'))
   if (!res.ok) return {}
   strongsCache = (await res.json()) as Record<string, StrongEntry>
   return strongsCache
@@ -47,7 +48,7 @@ export async function loadStrongs(): Promise<Record<string, StrongEntry>> {
 
 export async function loadSearchIndex(): Promise<SearchHit[]> {
   if (searchCache) return searchCache
-  const res = await fetch('/data/search.json')
+  const res = await fetch(asset('data/search.json'))
   if (!res.ok) return []
   searchCache = (await res.json()) as SearchHit[]
   return searchCache

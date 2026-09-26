@@ -1,13 +1,14 @@
 /** Soft page-turn SFX. Source: BigSoundBank "Pages that turn #6" (Joseph Sardin), CC0. */
 
 import { duckAmbient, unduckAmbient } from './ambient'
+import { asset } from './asset'
 import { useAppStore } from './store'
 
 let shared: HTMLAudioElement | null = null
 
 function ensure() {
   if (shared) return shared
-  shared = new Audio('/chamber/page-turn.mp3')
+  shared = new Audio(asset('chamber/page-turn.mp3'))
   shared.preload = 'auto'
   shared.volume = 0.35
   return shared

@@ -284,7 +284,7 @@ button { font: inherit; cursor: pointer; }
   position: relative;
   background:
     linear-gradient(180deg, rgba(239,230,216,0.92), rgba(239,230,216,0.88)),
-    url('/chamber/parchment.jpg') center / cover no-repeat,
+    url('../chamber/parchment.jpg') center / cover no-repeat,
     var(--vellum);
   color: var(--ink);
   font-family: var(--serif-body);

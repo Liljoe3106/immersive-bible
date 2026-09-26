@@ -1,18 +1,20 @@
-/* Immersive Bible SW: tiered cache. Never precache full chamber videos on first visit. */
-const VERSION = 'ib-v2'
+/* Immersive Bible SW: tiered cache. Never precache full chamber videos on first visit.
+ * Paths are relative to the SW location so GitHub Pages project base works. */
+const VERSION = 'ib-v3'
+const BASE = self.location.pathname.replace(/\/[^/]*$/, '/')
 const PRECACHE = [
-  '/',
-  '/manifest.webmanifest',
-  '/favicon.svg',
-  '/apple-touch-icon.png',
-  '/icon-192.png',
-  '/icon-512.png',
-  '/icon-192-maskable.png',
-  '/icon-512-maskable.png',
-  '/chamber/poster.jpg',
-  '/chamber/bed.mp3',
-  '/chamber/page-turn.mp3',
-  '/chamber/parchment.jpg',
+  BASE,
+  BASE + 'manifest.webmanifest',
+  BASE + 'favicon.svg',
+  BASE + 'apple-touch-icon.png',
+  BASE + 'icon-192.png',
+  BASE + 'icon-512.png',
+  BASE + 'icon-192-maskable.png',
+  BASE + 'icon-512-maskable.png',
+  BASE + 'chamber/poster.jpg',
+  BASE + 'chamber/bed.mp3',
+  BASE + 'chamber/page-turn.mp3',
+  BASE + 'chamber/parchment.jpg',
 ]
 
 self.addEventListener('install', (event) => {

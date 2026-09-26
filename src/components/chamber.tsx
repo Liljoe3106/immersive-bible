@@ -10,15 +10,16 @@ import {
   unduckAmbient,
 } from '../lib/ambient'
 import { useAmbientSound } from '../hooks/use-ambient-label'
+import { asset } from '../lib/asset'
 
-const HOME_SRC = '/chamber/home.mp4?v=v3c1'
-const OPEN_SRC = '/chamber/open-zoom.mp4?v=pullv6b'
-const POSTER = '/chamber/poster.jpg?v=v3c1'
+const HOME_SRC = asset('chamber/home.mp4?v=v3c1')
+const OPEN_SRC = asset('chamber/open-zoom.mp4?v=pullv6b')
+const POSTER = asset('chamber/poster.jpg?v=v3c1')
 /** Network paths (cache-bust). Prefer blob object URLs once prefetched.
  * Wing frames (closed/half/open) are NEVER used in the Continue open ritual —
  * tunnel/mobile often falls back here and those look broken. Parchment only. */
 const OPEN_STILLS_PATHS = {
-  parchment: '/chamber/open-stills/blank-parchment-best.jpg?v=stills4',
+  parchment: asset('chamber/open-stills/blank-parchment-best.jpg?v=stills4'),
 } as const
 /** Start the back home clip this far before the front ends. */
 const HOME_XFADE_LEAD_S = 1.65

@@ -1,6 +1,8 @@
 /** Chamber bed: Kevin MacLeod "Heart of Nowhere" (CC BY 3.0). Volume 0.18, 24s cubic ease-in.
  * Tempo slowed ~20% via atempo=0.8 (pitch preserved). Dual-element loop crossfade. */
 
+import { asset } from './asset'
+
 type AmbientListener = () => void
 
 let a: HTMLAudioElement | null = null
@@ -19,7 +21,7 @@ const FADE_IN_MS = 24000
 const MUTE_FADE_MS = 600
 const LOOP_CROSS_S = 1.4
 const DUCK_MS = 280
-const SRC = '/chamber/bed.mp3?v=hon2'
+const SRC = asset('chamber/bed.mp3?v=hon2')
 
 const listeners = new Set<AmbientListener>()
 
