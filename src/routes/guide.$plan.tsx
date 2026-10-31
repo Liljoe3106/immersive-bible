@@ -1,6 +1,7 @@
 import { Link, createFileRoute, notFound } from '@tanstack/react-router'
 import { formatDayReading, getPlan } from '../lib/reading-plans'
 import { useAppStore } from '../lib/store'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createFileRoute('/guide/$plan')({
   component: GuidePlanPage,
@@ -12,8 +13,13 @@ function GuidePlanPage() {
   const guidePlanId = useAppStore((s) => s.guidePlanId)
   const guideDay = useAppStore((s) => s.guideDay)
   const setGuideProgress = useAppStore((s) => s.setGuideProgress)
+  const guideDone = useAppStore((s) => s.guideDone)
+  const markDone = useAppStore((s) => s.markGuideDayDone)
+  const unmark = useAppStore((s) => s.unmarkGuideDay)
+  useTitle(plan ? plan.name : 'Reading plan')
 
   if (!plan) throw notFound()
+  const done = new Set(guideDone[plan.id] ?? [])
 
   const currentDay =
     guidePlanId === plan.id
@@ -42,6 +48,13 @@ function GuidePlanPage() {
       <p className="muted">
         Day {currentDay + 1} of {plan.days.length}
         {todayRefs.length ? `: ${formatDayReading(todayRefs)}` : ''}
+        {done.has(currentDay) ? ' ✓ done' : ''}
+      </p>
+      <div className="guide-progress" aria-label={`${done.size} of ${plan.days.length} days done`}>
+        <div className="guide-progress-bar" style={{ width: `${(done.size / plan.days.length) * 100}%` }} />
+      </div>
+      <p className="muted" style={{ fontSize: '0.85rem' }}>
+        {done.size} of {plan.days.length} days done
       </p>
       <div className="chamber-row" style={{ marginBottom: '1.25rem' }}>
         {first && (
@@ -53,6 +66,19 @@ function GuidePlanPage() {
           >
             Open today
           </Link>
+        )}
+        {!done.has(currentDay) ? (
+          <button
+            type="button"
+            className="reader-ghost guide-done-btn"
+            onClick={() => markDone(plan.id, currentDay, plan.days.length)}
+          >
+            Mark day {currentDay + 1} done
+          </button>
+        ) : (
+          <button type="button" className="reader-ghost" onClick={() => unmark(plan.id, currentDay)}>
+            Undo day {currentDay + 1} done
+          </button>
         )}
         {currentDay > 0 && (
           <button
@@ -89,6 +115,11 @@ function GuidePlanPage() {
             }
           >
             <h3 style={{ marginBottom: '0.35rem' }}>
+              {done.has(i) && (
+                <span className="guide-tick" aria-label="Done">
+                  ✓{' '}
+                </span>
+              )}
               Day {i + 1}
               {active ? ' (today)' : ''}
             </h3>
@@ -106,12 +137,22 @@ function GuidePlanPage() {
                   Open
                 </Link>
               )}
+              {!active && (
+                <button
+                  type="button"
+                  className="reader-ghost"
+                  onClick={() => setGuideProgress(plan.id, i)}
+                >
+                  Set as today
+                </button>
+              )}
               <button
                 type="button"
-                className="reader-ghost"
-                onClick={() => setGuideProgress(plan.id, i)}
+                className={`reader-ghost${done.has(i) ? ' active' : ''}`}
+                aria-pressed={done.has(i)}
+                onClick={() => (done.has(i) ? unmark(plan.id, i) : markDone(plan.id, i, plan.days.length))}
               >
-                Set as today
+                {done.has(i) ? 'Done ✓' : 'Mark done'}
               </button>
             </div>
           </div>

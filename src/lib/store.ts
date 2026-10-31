@@ -35,6 +35,16 @@ interface AppState {
   openHandoffFrame: string | null
   guidePlanId: string | null
   guideDay: number
+  /** Finished day indexes per plan id. */
+  guideDone: Record<string, number[]>
+  /** True once the reader picked Scroll or Book themselves. Phones default to Scroll until then. */
+  layoutChosen: boolean
+  /** How many times the full open ritual has played. Returning readers get a shorter one. */
+  ritualsSeen: number
+  markGuideDayDone: (planId: string, day: number, totalDays: number) => void
+  unmarkGuideDay: (planId: string, day: number) => void
+  chooseLayoutMode: (m: 'scroll' | 'book') => void
+  noteRitualSeen: () => void
   setPlace: (p: Place) => void
   setGuideProgress: (planId: string, day: number) => void
   addRecent: (p: Place) => void
@@ -91,6 +101,44 @@ export const useAppStore = create<AppState>()(
       openHandoffFrame: null,
       guidePlanId: null,
       guideDay: 0,
+      guideDone: {},
+      layoutChosen: false,
+      ritualsSeen: 0,
+      markGuideDayDone: (planId, day, totalDays) =>
+        set((s) => {
+          const done = new Set(s.guideDone[planId] ?? [])
+          done.add(day)
+          // Move "today" to the next unfinished day after this one (or stay on the last day).
+          let next = day
+          for (let i = day + 1; i < totalDays; i++) {
+            if (!done.has(i)) {
+              next = i
+              break
+            }
+          }
+          if (next === day) {
+            for (let i = 0; i < totalDays; i++) {
+              if (!done.has(i)) {
+                next = i
+                break
+              }
+            }
+          }
+          return {
+            guideDone: { ...s.guideDone, [planId]: [...done].sort((a, b) => a - b) },
+            guidePlanId: planId,
+            guideDay: next,
+          }
+        }),
+      unmarkGuideDay: (planId, day) =>
+        set((s) => ({
+          guideDone: {
+            ...s.guideDone,
+            [planId]: (s.guideDone[planId] ?? []).filter((d) => d !== day),
+          },
+        })),
+      chooseLayoutMode: (m) => set({ layoutMode: m, layoutChosen: true }),
+      noteRitualSeen: () => set((s) => ({ ritualsSeen: (s.ritualsSeen ?? 0) + 1 })),
       setPlace: (p) => {
         set({ place: p })
         get().addRecent(p)
@@ -157,7 +205,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'immersive-bible-v1',
-      version: 2,
+      version: 3,
       partialize: (state) => {
         const {
           readerSettlePending: _omitSettle,
@@ -181,6 +229,22 @@ export const useAppStore = create<AppState>()(
             p.readMode = 'en'
           }
           if (typeof p.chamberResumeAt !== 'number') p.chamberResumeAt = null
+        }
+        // v3: add guide ticks, layout choice flag and ritual count. Keep everything else as saved.
+        if (version < 3) {
+          if (!p.guideDone || typeof p.guideDone !== 'object') {
+            // Days before the saved "today" in the active plan count as done.
+            const done: Record<string, number[]> = {}
+            if (typeof p.guidePlanId === 'string' && typeof p.guideDay === 'number' && p.guideDay > 0) {
+              done[p.guidePlanId] = Array.from({ length: p.guideDay }, (_, i) => i)
+            }
+            p.guideDone = done
+          }
+          // The old open ritual forced Book every time, so the saved layout was never a real choice.
+          if (typeof p.layoutChosen !== 'boolean') p.layoutChosen = false
+          if (typeof p.ritualsSeen !== 'number') {
+            p.ritualsSeen = Array.isArray(p.daysOpened) && p.daysOpened.length > 0 ? 1 : 0
+          }
         }
         return p as AppState
       },

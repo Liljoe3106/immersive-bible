@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { runSearch, type SearchResult } from '../lib/bible/search'
 import { matchThenCardQuery } from '../lib/then-sense'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createFileRoute('/search')({
   validateSearch: (s: Record<string, unknown>): { q?: string } => ({
@@ -16,6 +17,9 @@ function SearchPage() {
   const [q, setQ] = useState(initial)
   const [results, setResults] = useState<SearchResult[]>([])
   const [busy, setBusy] = useState(false)
+  const [total, setTotal] = useState(0)
+  const [corrected, setCorrected] = useState<string | undefined>()
+  useTitle(initial ? `Search: ${initial}` : 'Search')
   const thenHit = initial.trim() ? matchThenCardQuery(initial) : undefined
 
   useEffect(() => {
@@ -27,7 +31,8 @@ function SearchPage() {
     let alive = true
     ;(async () => {
       setBusy(true)
-      const res = await runSearch(initial)
+      const out = await runSearch(initial)
+      const res = out.results
       if (!alive) return
       if (res.length === 1 && res[0].kind === 'circumstance') {
         void navigate({ to: '/name', search: { q: initial } })
@@ -42,6 +47,8 @@ function SearchPage() {
         return
       }
       setResults(res)
+      setTotal(out.total)
+      setCorrected(out.correctedTo)
       setBusy(false)
     })()
     return () => {
@@ -70,6 +77,8 @@ function SearchPage() {
         A reference, a word, or a phrase in the English text.
       </p>
       <form
+        className="search-form"
+        role="search"
         onSubmit={(e) => {
           e.preventDefault()
           void navigate({ to: '/search', search: { q } })
@@ -82,6 +91,9 @@ function SearchPage() {
           placeholder="John 1:1 · mercy · free text"
           aria-label="Search"
         />
+        <button type="submit" className="reader-ghost search-submit">
+          Search
+        </button>
       </form>
 
       {thenHit && (
@@ -111,7 +123,16 @@ function SearchPage() {
 
       {busy && <p className="muted">Searching…</p>}
       {!busy && results.length > 0 && (
-        <p className="search-results-label muted">English (KJV)</p>
+        <p className="search-results-label muted" role="status">
+          {corrected ? (
+            <>
+              No verses use "{initial}". Showing results for <strong>{corrected}</strong>.{' '}
+            </>
+          ) : null}
+          {total > results.length
+            ? `Showing the first ${results.length} of ${total} verses (KJV).`
+            : `${total} ${total === 1 ? 'verse' : 'verses'} (KJV).`}
+        </p>
       )}
       {!busy &&
         results.map((r, i) => (
@@ -134,7 +155,13 @@ function SearchPage() {
           </div>
         ))}
       {!busy && initial && results.length === 0 && !thenHit && (
-        <p className="muted">No matches. Try a reference, a word, or Name it.</p>
+        <p className="muted" role="status">
+          No verses match "{initial}". Try a reference like John 3:16, a single word, or{' '}
+          <Link to="/name" search={{ q: initial }} style={{ color: '#7a5d10' }}>
+            name what you are going through
+          </Link>
+          .
+        </p>
       )}
     </div>
   )

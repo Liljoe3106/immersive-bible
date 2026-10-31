@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { NameIt } from '../components/name-it'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createFileRoute('/name')({
   validateSearch: (s: Record<string, unknown>): { q?: string } => ({
@@ -10,6 +11,7 @@ export const Route = createFileRoute('/name')({
 
 function NamePage() {
   const { q = '' } = Route.useSearch()
+  useTitle('Name it')
   return (
     <div className="page-shell quiet-chrome">
       <div className="chamber-row page-nav" style={{ marginBottom: '1rem' }}>

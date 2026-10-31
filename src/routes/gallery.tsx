@@ -1,11 +1,13 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { THEN_CARDS } from '../lib/then-sense'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createFileRoute('/gallery')({
   component: GalleryPage,
 })
 
 function GalleryPage() {
+  useTitle('Original words')
   return (
     <div className="page-shell">
       <div className="chamber-row" style={{ marginBottom: '1rem' }}>

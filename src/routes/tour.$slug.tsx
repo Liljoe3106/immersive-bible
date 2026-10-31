@@ -1,5 +1,6 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { TourWalk } from '../components/tour-walk'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createFileRoute('/tour/$slug')({
   component: TourPage,
@@ -7,6 +8,7 @@ export const Route = createFileRoute('/tour/$slug')({
 
 function TourPage() {
   const { slug } = Route.useParams()
+  useTitle('Tour')
 
   if (slug !== 'bereshit') {
     return (

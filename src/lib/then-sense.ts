@@ -341,3 +341,20 @@ export function matchThenCardQuery(q: string): ThenCard | undefined {
     return pool.some((p) => p.includes(needle) || needle.includes(p))
   })
 }
+
+/**
+ * One "original" chip per term per chapter: maps verse index to the card to show,
+ * only on the first verse where that term appears.
+ */
+export function firstThenSensePerChapter(verses: string[]): Map<number, ThenCard> {
+  const seen = new Set<string>()
+  const out = new Map<number, ThenCard>()
+  verses.forEach((v, i) => {
+    const card = thenSenseForText(v).find((c) => !seen.has(c.id))
+    if (!card) return
+    // Mark every term in this verse as seen so later verses do not repeat them.
+    for (const c of thenSenseForText(v)) if (c === card) seen.add(c.id)
+    out.set(i, card)
+  })
+  return out
+}

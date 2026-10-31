@@ -1,30 +1,56 @@
 import { Link, Outlet, createRootRoute } from '@tanstack/react-router'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createRootRoute({
-  component: () => <Outlet />,
+  component: () => (
+    <main id="main" className="app-main">
+      <Outlet />
+    </main>
+  ),
   errorComponent: RootError,
+  notFoundComponent: NotFound,
 })
 
-function RootError() {
+/** Dark, candlelit "lost page" for any unknown address. */
+function NotFound() {
+  useTitle('Page not found')
   return (
-    <div
-      className="page-shell"
-      style={{
-        minHeight: '100dvh',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        gap: '1rem',
-      }}
-    >
-      <h1 style={{ margin: 0 }}>Something went wrong</h1>
-      <p className="muted" style={{ margin: 0 }}>
-        The page could not be shown. You can return home and try again.
-      </p>
-      <div className="chamber-row">
-        <Link to="/" className="reader-ghost">
-          Home
-        </Link>
+    <div className="lost-room">
+      <div className="lost-room-inner">
+        <p className="chamber-room-label">Page not found</p>
+        <h1 className="chamber-room-headline">This page is not in the book.</h1>
+        <p className="chamber-room-line">
+          The link may be old or mistyped. Go back to the room, or pick up the book where you choose.
+        </p>
+        <div className="chamber-row">
+          <Link to="/" className="chamber-ghost chamber-primary">
+            Back to the Chamber
+          </Link>
+          <Link to="/read" className="chamber-ghost">
+            Read
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RootError() {
+  useTitle('Something went wrong')
+  return (
+    <div className="lost-room">
+      <div className="lost-room-inner">
+        <p className="chamber-room-label">Something went wrong</p>
+        <h1 className="chamber-room-headline">The page could not be shown.</h1>
+        <p className="chamber-room-line">Go back to the room and try again.</p>
+        <div className="chamber-row">
+          <Link to="/" className="chamber-ghost chamber-primary">
+            Back to the Chamber
+          </Link>
+          <Link to="/read" className="chamber-ghost">
+            Read
+          </Link>
+        </div>
       </div>
     </div>
   )

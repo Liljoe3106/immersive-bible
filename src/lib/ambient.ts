@@ -1,4 +1,4 @@
-/** Chamber bed: Kevin MacLeod "Heart of Nowhere" (CC BY 3.0). Volume 0.18, 24s cubic ease-in.
+/** Chamber bed: Kevin MacLeod "Heart of Nowhere" (CC BY 3.0). Volume 0.18, 6s cubic ease-in.
  * Tempo slowed ~20% via atempo=0.8 (pitch preserved). Dual-element loop crossfade. */
 
 import { asset } from './asset'
@@ -13,11 +13,10 @@ let muted = false
 let needsGesture = false
 let fadeRaf = 0
 let loopRaf = 0
-let unlockBound = false
 let duckFactor = 1
 
 const TARGET = 0.18
-const FADE_IN_MS = 24000
+const FADE_IN_MS = 6000
 const MUTE_FADE_MS = 600
 const LOOP_CROSS_S = 1.4
 const DUCK_MS = 280
@@ -107,41 +106,6 @@ function fadeElTo(el: HTMLAudioElement, target: number, ms: number) {
   fadeRaf = requestAnimationFrame(step)
 }
 
-function clearUnlockListeners() {
-  if (!unlockBound) return
-  unlockBound = false
-  window.removeEventListener('pointerdown', unlockOnce)
-  window.removeEventListener('touchstart', unlockOnce)
-  window.removeEventListener('keydown', unlockOnce)
-  document.removeEventListener('visibilitychange', onVisibilityUnlock)
-  window.removeEventListener('pageshow', onPageshowUnlock)
-}
-
-function unlockOnce() {
-  startAmbient()
-  if (started) clearUnlockListeners()
-}
-
-function onVisibilityUnlock() {
-  if (document.visibilityState === 'visible') startAmbient()
-}
-
-function onPageshowUnlock() {
-  startAmbient()
-}
-
-function bindUnlockFallbacks() {
-  if (unlockBound) return
-  unlockBound = true
-  needsGesture = true
-  notify()
-  window.addEventListener('pointerdown', unlockOnce)
-  window.addEventListener('touchstart', unlockOnce, { passive: true })
-  window.addEventListener('keydown', unlockOnce)
-  document.addEventListener('visibilitychange', onVisibilityUnlock)
-  window.addEventListener('pageshow', onPageshowUnlock)
-}
-
 function stopLoopWatch() {
   cancelAnimationFrame(loopRaf)
   loopRaf = 0
@@ -209,84 +173,78 @@ async function crossfadeLoop() {
 }
 
 /**
- * Best-effort ambient start. Browsers may reject unmuted autoplay until a
- * user gesture; on rejection we bind unlock fallbacks. When muted, plays at 0
- * so later unmute can fade without a new gesture when the UA allows it.
+ * Start the bed. Only call this from a real user action (the Sound button or the
+ * open-book tap). If the browser still refuses, the label falls back to "Tap for sound".
  */
-export function startAmbient() {
+export function startAmbient(fadeMs = FADE_IN_MS) {
+  if (muted) {
+    notify()
+    return
+  }
   ensurePair()
   const el = current()
   if (started && !el.paused) {
     needsGesture = false
+    fadeElTo(el, effectiveTarget(), Math.min(fadeMs, 1200))
     notify()
     return
   }
   started = true
-  if (muted) {
-    cancelFade()
-    el.volume = 0
-    el.play()
-      .then(() => {
-        needsGesture = false
-        clearUnlockListeners()
-        watchLoop()
-        notify()
-      })
-      .catch(() => {
-        started = false
-        bindUnlockFallbacks()
-        notify()
-      })
-    return
-  }
   el.play()
     .then(() => {
       needsGesture = false
-      clearUnlockListeners()
       watchLoop()
       notify()
     })
     .catch(() => {
       started = false
+      needsGesture = true
       cancelFade()
-      bindUnlockFallbacks()
       notify()
     })
-  fadeElTo(el, effectiveTarget(), FADE_IN_MS)
+  fadeElTo(el, effectiveTarget(), fadeMs)
   notify()
 }
 
+/** Mute: fade out, then pause so nothing keeps playing in the background. */
 export function setAmbientMuted(next: boolean) {
+  // Re-applying the same state must not cancel a fade that is already running.
+  if (next === muted) {
+    notify()
+    return
+  }
   muted = next
+  if (!a && !b) {
+    notify()
+    return
+  }
   const el = current()
-  cancelFade()
   if (next) {
-    // Prefer volume fade over pause so unmute is not stranded behind autoplay.
-    fadeElTo(el, 0, MUTE_FADE_MS)
-    notify()
-    return
-  }
-  if (!started) {
-    notify()
-    return
-  }
-  const alreadyPlaying = !el.paused
-  el.play()
-    .then(() => {
-      needsGesture = false
-      clearUnlockListeners()
-      watchLoop()
-      notify()
-    })
-    .catch(() => {
+    cancelFade()
+    const from = clampVol(el.volume)
+    const t0 = performance.now()
+    const step = (now: number) => {
+      if (!muted) return
+      const t = Math.min(1, (now - t0) / MUTE_FADE_MS)
+      el.volume = clampVol(from * (1 - t))
+      if (t < 1) {
+        fadeRaf = requestAnimationFrame(step)
+        return
+      }
+      stopLoopWatch()
+      for (const x of [a, b]) {
+        try {
+          x?.pause()
+        } catch {
+          /* */
+        }
+      }
       started = false
-      bindUnlockFallbacks()
       notify()
-    })
-  if (alreadyPlaying && clampVol(el.volume) >= TARGET * 0.95 * duckFactor) {
-    el.volume = clampVol(effectiveTarget())
-  } else {
-    fadeElTo(el, effectiveTarget(), MUTE_FADE_MS)
+    }
+    fadeRaf = requestAnimationFrame(step)
+    notify()
+    return
   }
   notify()
 }
@@ -310,16 +268,10 @@ export function isAmbientMuted() {
   return muted
 }
 
-/** Gesture/visibility unlock fallback when autoplay was blocked. */
-export function bindAmbientGesture() {
-  bindUnlockFallbacks()
-}
-
 /** Honest label for Sound controls. */
 export function ambientSoundLabel(): 'Sound on' | 'Sound off' | 'Tap for sound' {
   const s = getAmbientState()
   if (s.muted) return 'Sound off'
-  // Playing (even mid fade-in) counts as on; blocked autoplay stays Tap for sound.
-  if (s.needsGesture || !s.playing) return 'Tap for sound'
-  return 'Sound on'
+  if (s.playing) return 'Sound on'
+  return 'Tap for sound'
 }

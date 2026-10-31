@@ -2,14 +2,14 @@ import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 're
 import { useNavigate } from '@tanstack/react-router'
 import { useAppStore } from '../lib/store'
 import { formatRef } from '../lib/bible/books'
+import { formatDayReading, getPlan } from '../lib/reading-plans'
 import {
-  bindAmbientGesture,
   duckAmbient,
   startAmbient,
-  setAmbientMuted,
   unduckAmbient,
 } from '../lib/ambient'
 import { useAmbientSound } from '../hooks/use-ambient-label'
+import { useTitle } from '../hooks/use-title'
 import { asset } from '../lib/asset'
 import { HOME_SRC, OPEN_SRC } from '../lib/chamber-media'
 
@@ -124,14 +124,19 @@ async function fetchImageBlobUrl(
 export function Chamber() {
   const navigate = useNavigate()
   const place = useAppStore((s) => s.place)
-  const audioMuted = useAppStore((s) => s.audioMuted)
   const touchDay = useAppStore((s) => s.touchDay)
-  const setLayoutMode = useAppStore((s) => s.setLayoutMode)
+  const ritualsSeen = useAppStore((s) => s.ritualsSeen)
+  const noteRitualSeen = useAppStore((s) => s.noteRitualSeen)
+  const guidePlanId = useAppStore((s) => s.guidePlanId)
+  const guideDay = useAppStore((s) => s.guideDay)
+  const guideDone = useAppStore((s) => s.guideDone)
+  const returning = ritualsSeen > 0
   const chamberResumeAt = useAppStore((s) => s.chamberResumeAt)
   const setChamberResumeAt = useAppStore((s) => s.setChamberResumeAt)
   const armReaderSettle = useAppStore((s) => s.armReaderSettle)
   const setOpenHandoffFrame = useAppStore((s) => s.setOpenHandoffFrame)
   const { label: soundLabel, toggle: toggleSound, active: soundActive } = useAmbientSound()
+  useTitle(null)
 
   const homeRef = useRef<HTMLVideoElement>(null)
   const homeBRef = useRef<HTMLVideoElement>(null)
@@ -207,10 +212,7 @@ export function Chamber() {
 
   useEffect(() => {
     touchDay()
-    setAmbientMuted(audioMuted)
-    startAmbient()
-    bindAmbientGesture()
-  }, [audioMuted, touchDay])
+  }, [touchDay])
 
   // Prefetch open.mp4 + open-stills as Blobs — never assign network OPEN_SRC to <video>.
   useEffect(() => {
@@ -318,9 +320,6 @@ export function Chamber() {
     if (!homeSrcActive) return
     const v = homeRef.current
     if (!v) return
-    const tryAmbient = () => startAmbient()
-    v.addEventListener('play', tryAmbient)
-    v.addEventListener('playing', tryAmbient)
     const onReady = () => setMediaReady(true)
     if (v.readyState >= 2) setMediaReady(true)
     v.addEventListener('canplay', onReady)
@@ -346,8 +345,6 @@ export function Chamber() {
     }
 
     return () => {
-      v.removeEventListener('play', tryAmbient)
-      v.removeEventListener('playing', tryAmbient)
       v.removeEventListener('canplay', onReady)
       v.removeEventListener('loadeddata', onReady)
     }
@@ -491,7 +488,7 @@ export function Chamber() {
     clearStillsTimers()
     const seamless = !!opts?.seamless
     if (!seamless) setVeil(true)
-    setLayoutMode('book')
+    if (ritualShown.current) noteRitualSeen()
     setChamberResumeAt(null)
     armReaderSettle()
     unduckAmbient(1200)
@@ -578,7 +575,7 @@ export function Chamber() {
     }
     stillsStarted.current = true
     openPlayBegun.current = true // cancel video path racing in
-    const short = !!opts?.short || prefersReducedMotion()
+    const short = !!opts?.short || prefersReducedMotion() || returning
     const parchMs = short ? STILL_RM_PARCHMENT_MS : STILL_PARCHMENT_MS
 
     pauseBothHomes()
@@ -615,12 +612,31 @@ export function Chamber() {
     else runCreamOnly()
   }
 
+  /** Skip the opening film at any point and go straight to the page. */
+  const skipRitual = () => {
+    if (navigated.current) return
+    try {
+      openRef.current?.pause()
+    } catch {
+      /* */
+    }
+    clearStillsTimers()
+    stillsStarted.current = true
+    goRead()
+  }
+
   const startOpen = () => {
     if (opening || openStarted.current) return
     // Prefer openReady; parchment alone only after open fail or prefer-wait.
     const stillsOk =
       stillsReady && (openFailed || allowStillsContinue)
-    if (!openReady && !stillsOk) return
+    if (!openReady && !stillsOk) {
+      // Opening film still loading: do not make anyone wait. Go straight in.
+      openStarted.current = true
+      startAmbient()
+      goRead()
+      return
+    }
     openStarted.current = true
     openPlayBegun.current = false
     ritualShown.current = false
@@ -722,6 +738,8 @@ export function Chamber() {
     open.loop = false
     try {
       open.currentTime = 0
+      // Returning readers get a shorter opening.
+      open.playbackRate = returning ? 2 : 1
     } catch {
       /* */
     }
@@ -785,6 +803,10 @@ export function Chamber() {
   const canContinue =
     openReady || ((openFailed || allowStillsContinue) && stillsReady)
   const homesHidden = openVisible || stillsActive
+  const plan = guidePlanId ? getPlan(guidePlanId) : undefined
+  const planDay = plan ? Math.min(Math.max(guideDay, 0), plan.days.length - 1) : 0
+  const planDone = plan ? (guideDone[plan.id] ?? []).length : 0
+  const planToday = plan?.days[planDay] ?? []
 
   const stillSrc =
     stillFrame && stillUrls
@@ -794,7 +816,10 @@ export function Chamber() {
         : null
 
   return (
-    <div className={`chamber-root${idleDim ? ' is-idle' : ''}`}>
+    <div
+      className={`chamber-root${idleDim ? ' is-idle' : ''}`}
+      onClick={opening ? skipRitual : undefined}
+    >
       <video
         ref={homeRef}
         className={`chamber-video chamber-video-home${homeFront === 0 ? ' is-front' : ''}${homesHidden ? ' is-hidden' : ''}`}
@@ -850,6 +875,17 @@ export function Chamber() {
       />
       <div className={`chamber-idle-vignette${idleDim ? ' on' : ''}`} aria-hidden />
 
+      {opening && !veil && (
+        <div className="chamber-skip" onClick={(e) => e.stopPropagation()}>
+          <span className="chamber-skip-hint" role="status">
+            {openVisible || stillsActive ? 'Opening the book…' : 'Loading the opening…'}
+          </span>
+          <button type="button" className="chamber-ghost" onClick={skipRitual} autoFocus>
+            Skip
+          </button>
+        </div>
+      )}
+
       <button
         type="button"
         className={`chamber-hit${opening ? ' is-opening' : ''}`}
@@ -888,14 +924,22 @@ export function Chamber() {
             <button
               type="button"
               className="chamber-ghost chamber-primary"
-              disabled={!canContinue && !opening}
-              aria-disabled={!canContinue && !opening}
               onClick={(e) => {
                 e.stopPropagation()
                 startOpen()
               }}
             >
-              {canContinue || opening ? ctaLabel : 'Preparing…'}
+              {ctaLabel}
+            </button>
+            <button
+              type="button"
+              className="chamber-ghost"
+              onClick={(e) => {
+                e.stopPropagation()
+                softLeave('/guide')
+              }}
+            >
+              Guide
             </button>
             <button
               type="button"
@@ -909,6 +953,39 @@ export function Chamber() {
               More
             </button>
           </div>
+          {!canContinue && !opening && (
+            <p className="chamber-loading-hint" role="status">
+              The opening film is still loading. Tap Continue to go straight to the page.
+            </p>
+          )}
+
+          {plan && (
+            <div className="chamber-plan" onClick={stopHud}>
+              <p className="chamber-plan-label">Reading plan</p>
+              <p className="chamber-plan-name">
+                {plan.name}: day {planDay + 1} of {plan.days.length}
+                {planDone > 0 ? ` · ${planDone} done` : ''}
+              </p>
+              {planToday[0] && (
+                <button
+                  type="button"
+                  className="chamber-ghost"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (navigated.current) return
+                    navigated.current = true
+                    persistHomeTime()
+                    void navigate({
+                      to: '/read/$book/$chapter',
+                      params: { book: planToday[0].book, chapter: String(planToday[0].chapter) },
+                    })
+                  }}
+                >
+                  Today: {formatDayReading(planToday)}
+                </button>
+              )}
+            </div>
+          )}
 
           {moreOpen && (
             <div className="chamber-more" onClick={stopHud}>
@@ -967,20 +1044,10 @@ export function Chamber() {
                   className="chamber-ghost"
                   onClick={(e) => {
                     e.stopPropagation()
-                    softLeave('/guide')
-                  }}
-                >
-                  Guide
-                </button>
-                <button
-                  type="button"
-                  className="chamber-ghost"
-                  onClick={(e) => {
-                    e.stopPropagation()
                     softLeave('/read')
                   }}
                 >
-                  Read
+                  All books
                 </button>
               </div>
             </div>

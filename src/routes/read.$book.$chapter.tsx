@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Link, createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { BookReader } from '../components/book-reader'
 import { ChapterBlock } from '../components/chapter-block'
 import { WordPanel, type WordPanelTarget } from '../components/word-panel'
 import { loadChapter } from '../lib/bible/load'
-import { nextPlace, formatRef, getBook } from '../lib/bible/books'
+import { BOOK_ALIASES, BOOK_BY_ID, nextPlace, formatRef, getBook } from '../lib/bible/books'
 import { useAppStore } from '../lib/store'
-import { bindAmbientGesture, startAmbient } from '../lib/ambient'
 import { useAmbientSound } from '../hooks/use-ambient-label'
+import { useLayoutMode } from '../hooks/use-layout'
+import { useTitle } from '../hooks/use-title'
+import { ChapterPicker } from '../components/chapter-picker'
+import { LoadError } from '../components/load-error'
+import { getPlan } from '../lib/reading-plans'
 import type { OrigWord, ReadMode } from '../lib/bible/types'
 
 type Chunk = {
@@ -30,8 +34,49 @@ export const Route = createFileRoute('/read/$book/$chapter')({
     w: typeof s.w === 'string' ? s.w : undefined,
     mode: s.mode === 'gap' || s.mode === 'orig' || s.mode === 'en' ? (s.mode as ReadMode) : undefined,
   }),
-  component: ReaderPage,
+  beforeLoad: ({ params, search }) => {
+    const raw = params.book
+    const key = raw.toLowerCase()
+    const id = BOOK_BY_ID[key] ? key : BOOK_ALIASES[key] ?? BOOK_ALIASES[key.replace(/[-_]/g, ' ')]
+    if (!id || !BOOK_BY_ID[id]) return
+    const max = BOOK_BY_ID[id].chapters
+    const n = Math.floor(Number(params.chapter))
+    const ch = Number.isFinite(n) ? Math.min(Math.max(n, 1), max) : 1
+    if (id !== raw || String(ch) !== params.chapter) {
+      throw redirect({
+        to: '/read/$book/$chapter',
+        params: { book: id, chapter: String(ch) },
+        search,
+        replace: true,
+      })
+    }
+  },
+  component: ReaderRoute,
 })
+
+function ReaderRoute() {
+  const { book } = Route.useParams()
+  if (!getBook(book)) return <BookNotFound id={book} />
+  return <ReaderPage />
+}
+
+function BookNotFound({ id }: { id: string }) {
+  useTitle('Book not found')
+  return (
+    <div className="page-shell lost-page">
+      <h1>No book called "{id}"</h1>
+      <p className="muted">That link does not match a book of the Bible. Pick one from the list instead.</p>
+      <div className="chamber-row">
+        <Link to="/read" className="reader-ghost">
+          Choose a book
+        </Link>
+        <Link to="/" className="reader-ghost">
+          Chamber
+        </Link>
+      </div>
+    </div>
+  )
+}
 
 function ReaderPage() {
   const { book, chapter: chapterStr } = Route.useParams()
@@ -41,8 +86,11 @@ function ReaderPage() {
   const setPlace = useAppStore((s) => s.setPlace)
   const readSize = useAppStore((s) => s.readSize)
   const setReadSize = useAppStore((s) => s.setReadSize)
-  const layoutMode = useAppStore((s) => s.layoutMode)
-  const setLayoutMode = useAppStore((s) => s.setLayoutMode)
+  const [layoutMode, setLayoutMode] = useLayoutMode()
+  const guidePlanId = useAppStore((s) => s.guidePlanId)
+  const guideDay = useAppStore((s) => s.guideDay)
+  const guideDone = useAppStore((s) => s.guideDone)
+  const markGuideDayDone = useAppStore((s) => s.markGuideDayDone)
   const readMode = useAppStore((s) => s.readMode)
   const setReadMode = useAppStore((s) => s.setReadMode)
   const { label: soundLabel, toggle: toggleSound, active: soundActive } = useAmbientSound()
@@ -52,6 +100,9 @@ function ReaderPage() {
   const [loading, setLoading] = useState(true)
   const [chromeHidden, setChromeHidden] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [scrollFailed, setScrollFailed] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
   const [settleIn, setSettleIn] = useState(() => {
     if (readerSettleLatch) return true
     const pending = useAppStore.getState().consumeReaderSettle()
@@ -80,10 +131,7 @@ function ReaderPage() {
   const mode = search.mode ?? readMode ?? 'en'
   const isBook = layoutMode === 'book'
 
-  useEffect(() => {
-    startAmbient()
-    bindAmbientGesture()
-  }, [])
+  useTitle(formatRef(book, chapter))
 
   // Clear settle class after animation (armed only once via consume on mount).
   useEffect(() => {
@@ -152,6 +200,7 @@ function ReaderPage() {
     loadingMore.current = true
     ;(async () => {
       setLoading(true)
+      setScrollFailed(false)
       const loaded: Chunk[] = []
       const keys = new Set<string>()
       let cur: { book: string; chapter: number } | null = { book, chapter }
@@ -168,6 +217,7 @@ function ReaderPage() {
         }
       }
       if (!alive) return
+      setScrollFailed(loaded.length === 0)
       seenKeys.current = keys
       setChunks(loaded)
       endRef.current = loaded.length
@@ -190,7 +240,7 @@ function ReaderPage() {
     return () => {
       alive = false
     }
-  }, [book, chapter, search.v, search.w, setPlace, isBook])
+  }, [book, chapter, search.v, search.w, setPlace, isBook, retryKey])
 
   const loadMore = useCallback(async () => {
     if (!initialDone.current || loadingMore.current || isBook) return
@@ -287,12 +337,21 @@ function ReaderPage() {
       else if (y < lastScrollY.current - 8) bump()
       lastScrollY.current = y
     }
+    // Keyboard users: any key or focus into the header brings it back.
+    const onKey = () => bump()
+    const onFocus = (e: FocusEvent) => {
+      if ((e.target as HTMLElement)?.closest?.('.reader-top')) bump()
+    }
     window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('pointerdown', bump)
+    window.addEventListener('keydown', onKey)
+    document.addEventListener('focusin', onFocus)
     return () => {
       window.clearTimeout(idleTimer)
       window.removeEventListener('scroll', onScroll)
       window.removeEventListener('pointerdown', bump)
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('focusin', onFocus)
     }
   }, [])
 
@@ -321,6 +380,32 @@ function ReaderPage() {
 
   const title = getBook(book)?.name ?? book
 
+  // Guide: is this chapter part of today's reading in the active plan?
+  const plan = guidePlanId ? getPlan(guidePlanId) : undefined
+  const planDay = plan ? Math.min(Math.max(guideDay, 0), plan.days.length - 1) : -1
+  const todayRefs = plan ? plan.days[planDay] ?? [] : []
+  const inToday = (b: string, c: number) => todayRefs.some((r) => r.book === b && r.chapter === c)
+  const dayDone = !!plan && (guideDone[plan.id] ?? []).includes(planDay)
+  const guideAction = (b: string, c: number) =>
+    plan && inToday(b, c) ? (
+      dayDone ? (
+        <span className="guide-done-note">Day {planDay + 1} done ✓</span>
+      ) : (
+        <button
+          type="button"
+          className="reader-ghost guide-done-btn"
+          onClick={() => markGuideDayDone(plan.id, planDay, plan.days.length)}
+        >
+          Mark day {planDay + 1} done
+        </button>
+      )
+    ) : null
+  const lastTodayChunk = (() => {
+    for (let i = chunks.length - 1; i >= 0; i--) if (inToday(chunks[i].book, chunks[i].chapter)) return i
+    return -1
+  })()
+  const sizeNames = ['Small', 'Medium', 'Large'] as const
+
   return (
     <div
       className={`reader-shell${isBook ? ' reader-shell-book' : ''}${chromeHidden ? ' chrome-hidden' : ''}${handoffOn ? ' has-handoff' : ''}${handoffOn && !handoffFading ? ' handoff-chrome-in' : ''}`}
@@ -347,13 +432,24 @@ function ReaderPage() {
             <Link to="/" className="reader-ghost">
               Chamber
             </Link>
-            <span className="reader-place">{formatRef(book, chapter)}</span>
+            <h1 className="reader-place-h">
+              <button
+                type="button"
+                className="reader-place"
+                aria-haspopup="dialog"
+                aria-label={`${formatRef(book, chapter)}. Choose a chapter`}
+                onClick={() => setPickerOpen(true)}
+              >
+                {formatRef(book, chapter)} <span aria-hidden>▾</span>
+              </button>
+            </h1>
           </div>
           <div className="chamber-row reader-top-group" role="group" aria-label="View">
             <span className="reader-top-label">View</span>
             <button
               type="button"
               className={`reader-ghost${layoutMode === 'scroll' ? ' active' : ''}`}
+              aria-pressed={layoutMode === 'scroll'}
               onClick={() => setLayoutMode('scroll')}
             >
               Scroll
@@ -361,6 +457,7 @@ function ReaderPage() {
             <button
               type="button"
               className={`reader-ghost${layoutMode === 'book' ? ' active' : ''}`}
+              aria-pressed={layoutMode === 'book'}
               onClick={() => setLayoutMode('book')}
             >
               Book
@@ -368,6 +465,7 @@ function ReaderPage() {
             <button
               type="button"
               className={`reader-ghost${soundActive ? ' active' : ''}`}
+              aria-pressed={soundActive}
               title="Heart of Nowhere (Kevin MacLeod, CC BY 3.0)"
               onClick={() => toggleSound()}
             >
@@ -389,6 +487,7 @@ function ReaderPage() {
             <button
               type="button"
               className={`reader-ghost${mode === 'en' ? ' active' : ''}`}
+              aria-pressed={mode === 'en'}
               onClick={() => setMode('en')}
             >
               English
@@ -396,6 +495,7 @@ function ReaderPage() {
             <button
               type="button"
               className={`reader-ghost${mode === 'gap' ? ' active' : ''}`}
+              aria-pressed={mode === 'gap'}
               onClick={() => setMode('gap')}
             >
               Both
@@ -403,21 +503,38 @@ function ReaderPage() {
             <button
               type="button"
               className={`reader-ghost${mode === 'orig' ? ' active' : ''}`}
+              aria-pressed={mode === 'orig'}
               onClick={() => setMode('orig')}
             >
-              Orig
+              Original
             </button>
           </div>
         </div>
         {moreOpen && (
           <div className="reader-more">
-            <button
-              type="button"
-              className="reader-ghost"
-              onClick={() => setReadSize(((readSize + 1) % 3) as 0 | 1 | 2)}
-            >
-              Size {readSize}
-            </button>
+            <div className="size-control" role="group" aria-label="Text size">
+              <button
+                type="button"
+                className="reader-ghost"
+                aria-label="Smaller text"
+                disabled={readSize === 0}
+                onClick={() => setReadSize((readSize - 1) as 0 | 1 | 2)}
+              >
+                A−
+              </button>
+              <span className="size-control-label" aria-live="polite">
+                Text: {sizeNames[readSize]}
+              </span>
+              <button
+                type="button"
+                className="reader-ghost"
+                aria-label="Larger text"
+                disabled={readSize === 2}
+                onClick={() => setReadSize((readSize + 1) as 0 | 1 | 2)}
+              >
+                A+
+              </button>
+            </div>
             <Link to="/search" className="reader-ghost" onClick={() => setMoreOpen(false)}>
               Search
             </Link>
@@ -444,13 +561,17 @@ function ReaderPage() {
             highlightVerse={search.v}
             onWord={setPanel}
             onChapterChange={onBookChapterChange}
+            endAction={guideAction(book, chapter)}
           />
         ) : (
-          <main className={`reader-body reader-size-${readSize}`}>
+          <div className={`reader-body reader-size-${readSize}`}>
             {loading && <p className="muted">Opening {title}…</p>}
+            {!loading && scrollFailed && (
+              <LoadError book={book} chapter={chapter} onRetry={() => setRetryKey((k) => k + 1)} />
+            )}
             {chunks.map((c, idx) => (
+              <div key={chunkKey(c)}>
               <ChapterBlock
-                key={chunkKey(c)}
                 book={c.book}
                 chapter={c.chapter}
                 en={c.en}
@@ -460,15 +581,20 @@ function ReaderPage() {
                 onWord={setPanel}
                 showCatches={idx === 0}
               />
+              {idx === lastTodayChunk && <div className="guide-done-row">{guideAction(c.book, c.chapter)}</div>}
+              </div>
             ))}
             <div ref={sentinelRef} style={{ height: 1 }} />
-            <p className="muted" style={{ textAlign: 'center', marginTop: '2rem' }}>
-              Keep scrolling: next chapter loads quietly.
-            </p>
-          </main>
+            {!scrollFailed && (
+              <p className="muted" style={{ textAlign: 'center', marginTop: '2rem' }}>
+                Keep scrolling: the next chapter loads on its own.
+              </p>
+            )}
+          </div>
         )}
       </div>
       <WordPanel target={panel} onClose={() => setPanel(null)} />
+      {pickerOpen && <ChapterPicker book={book} chapter={chapter} onClose={() => setPickerOpen(false)} />}
     </div>
   )
 }

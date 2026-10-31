@@ -1,6 +1,7 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { READING_PLANS } from '../lib/reading-plans'
 import { useAppStore } from '../lib/store'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createFileRoute('/guide/')({
   component: GuideIndexPage,
@@ -9,6 +10,8 @@ export const Route = createFileRoute('/guide/')({
 function GuideIndexPage() {
   const guidePlanId = useAppStore((s) => s.guidePlanId)
   const guideDay = useAppStore((s) => s.guideDay)
+  const guideDone = useAppStore((s) => s.guideDone)
+  useTitle('Reading guide')
 
   return (
     <div className="page-shell quiet-chrome">
@@ -32,6 +35,7 @@ function GuideIndexPage() {
       </p>
       {READING_PLANS.map((plan) => {
         const inProgress = guidePlanId === plan.id
+        const done = (guideDone[plan.id] ?? []).length
         return (
           <div className="card" key={plan.id}>
             <h3>
@@ -46,11 +50,12 @@ function GuideIndexPage() {
             <p>{plan.blurb}</p>
             <p className="muted">
               {plan.days.length} day{plan.days.length === 1 ? '' : 's'}
-              {inProgress ? ` · day ${guideDay + 1}` : ''}
+              {inProgress ? ` · today is day ${guideDay + 1}` : ''}
+              {done > 0 ? ` · ${done} done ✓` : ''}
             </p>
             <div className="chamber-row" style={{ marginTop: '0.65rem' }}>
               <Link to="/guide/$plan" params={{ plan: plan.id }} className="reader-ghost">
-                {inProgress ? 'Continue' : 'Open plan'}
+                {inProgress || done > 0 ? 'Continue' : 'Open plan'}
               </Link>
             </div>
           </div>

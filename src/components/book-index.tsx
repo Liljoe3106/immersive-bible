@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
+import { ChapterGrid } from './chapter-picker'
 import {
   BOOK_SECTIONS,
   TOTAL_CHAPTERS,
@@ -27,13 +29,14 @@ function ProgressDots() {
 }
 
 export function BookIndex() {
+  const [open, setOpen] = useState<string | null>(null)
   return (
     <div className="book-index">
       <p className="book-index-eyebrow">Genesis to Revelation</p>
       <h1 className="book-index-title">The book, in order.</h1>
       <p className="book-index-sub">
-        Sixty-six books, front to back. Open a chapter and keep going — scroll, swipe, or turn the
-        page. Search is a side door, not the entrance.
+        Sixty-six books, front to back. Tap a book to choose a chapter, then keep going: scroll down,
+        or in Book view swipe or tap the arrows to turn the page.
       </p>
       <p className="book-index-stats muted">
         {TOTAL_CHAPTERS.toLocaleString('en-GB')} chapters · Genesis to Revelation
@@ -49,22 +52,47 @@ export function BookIndex() {
         <section key={section.id} className="book-index-section">
           <h2 className="book-index-section-label">{section.label}</h2>
           <div className="book-index-list">
-            {booksInSection(section).map((book) => (
-              <Link
-                key={book.id}
-                to="/read/$book/$chapter"
-                params={{ book: book.id, chapter: '1' }}
-                className="book-index-row"
-              >
-                <span className="book-index-name">{book.name}</span>
-                {book.native && (
-                  <span className="book-index-native" dir="auto" lang={book.testament === 'ot' ? 'he' : 'el'}>
-                    {book.native}
+            {booksInSection(section).map((book) => {
+              const row = (
+                <>
+                  <span className="book-index-name">{book.name}</span>
+                  {book.native && (
+                    <span className="book-index-native" dir="auto" lang={book.testament === 'ot' ? 'he' : 'el'}>
+                      {book.native}
+                    </span>
+                  )}
+                  <span className="book-index-ch">
+                    {book.chapters === 1 ? '1 chapter' : `${book.chapters} chapters`}
                   </span>
-                )}
-                <span className="book-index-ch">{book.chapters} ch.</span>
-              </Link>
-            ))}
+                </>
+              )
+              if (book.chapters === 1) {
+                return (
+                  <Link
+                    key={book.id}
+                    to="/read/$book/$chapter"
+                    params={{ book: book.id, chapter: '1' }}
+                    className="book-index-row"
+                  >
+                    {row}
+                  </Link>
+                )
+              }
+              const isOpen = open === book.id
+              return (
+                <div key={book.id} className={`book-index-item${isOpen ? ' is-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="book-index-row"
+                    aria-expanded={isOpen}
+                    onClick={() => setOpen(isOpen ? null : book.id)}
+                  >
+                    {row}
+                  </button>
+                  {isOpen && <ChapterGrid book={book.id} />}
+                </div>
+              )
+            })}
           </div>
         </section>
       ))}

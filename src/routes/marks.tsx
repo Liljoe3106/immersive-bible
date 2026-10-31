@@ -1,12 +1,14 @@
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useAppStore } from '../lib/store'
 import { formatRef } from '../lib/bible/books'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createFileRoute('/marks')({
   component: MarksPage,
 })
 
 function MarksPage() {
+  useTitle('Marks')
   const verseMarks = useAppStore((s) => s.verseMarks)
   const bookmarks = useAppStore((s) => s.bookmarks)
   const streak = useAppStore((s) => s.streak)

@@ -13,7 +13,9 @@
  *
  * Paths are relative to the SW location so the GitHub Pages project base works.
  */
-const BUILD_ID = '__BUILD_ID__'
+/** Bump SW_VERSION on releases that change app behaviour, so installed copies update. */
+const SW_VERSION = 'v2-2026-10-31-qa-fixes'
+const BUILD_ID = SW_VERSION + '-' + '__BUILD_ID__'
 const PRECACHE = /*__PRECACHE__*/ []
 
 const BASE = self.location.pathname.replace(/\/[^/]*$/, '/')

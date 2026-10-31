@@ -1,5 +1,7 @@
 import { formatRef, getBook } from '../lib/bible/books'
-import { catchesInChapter, notableThenSense } from '../lib/then-sense'
+import { catchesInChapter, firstThenSensePerChapter } from '../lib/then-sense'
+import { useMemo } from 'react'
+import { pressable } from './pressable'
 import type { OrigWord, ReadMode } from '../lib/bible/types'
 import type { WordPanelTarget } from './word-panel'
 import { CatchesStrip } from './catches-strip'
@@ -29,6 +31,7 @@ export function ChapterBlock({
   const b = getBook(book)
   const isHebrew = b?.testament === 'ot'
   const chapterCatches = showCatches ? catchesInChapter(en) : []
+  const chips = useMemo(() => firstThenSensePerChapter(en), [en])
 
   return (
     <section className="chapter-block" data-book={book} data-chapter={chapter}>
@@ -45,7 +48,7 @@ export function ChapterBlock({
                 lemma: c.native,
               })
             } else {
-              onWord({ kind: 'verse', text: `${c.word} — ${c.then}. ${c.note}` })
+              onWord({ kind: 'verse', text: `${c.word}: ${c.then}. ${c.note}` })
             }
           }}
         />
@@ -55,7 +58,7 @@ export function ChapterBlock({
         const marked = marks.some(
           (m) => m.book === book && m.chapter === chapter && m.verse === verse,
         )
-        const caveat = notableThenSense(text)
+        const caveat = chips.get(i)
         const ow = orig?.[i] ?? null
         const hl = highlightVerse === verse
         const verseId = `v-${book}-${chapter}-${verse}`
@@ -86,7 +89,7 @@ export function ChapterBlock({
                   <span
                     key={wi}
                     className="orig-word"
-                    onClick={() =>
+                    {...pressable(() =>
                       onWord({
                         kind: 'orig',
                         text: w.t,
@@ -97,8 +100,7 @@ export function ChapterBlock({
                         book,
                         chapter,
                         verse,
-                      })
-                    }
+                      }))}
                   >
                     {w.t}{' '}
                   </span>
@@ -116,17 +118,17 @@ export function ChapterBlock({
               className={`gap-row${marked ? ' marked' : ''}`}
             >
               <p
-                className={`verse${marked ? ' marked' : ''}`}
-                style={hl ? { background: 'rgba(201,162,39,0.15)' } : undefined}
+                className={`verse${marked ? ' marked' : ''}${hl ? ' is-highlight' : ''}`}
+                data-hl={hl || undefined}
               >
                 <span className="verse-num">{verse}</span>
-                <span className="verse-text" onClick={() => onWord(verseTarget)}>
+                <span className="verse-text" {...pressable(() => onWord(verseTarget))}>
                   {text}
                 </span>
                 {caveat && (
-                  <span className="caveat-chip" onClick={() => onWord(verseTarget)}>
+                  <button type="button" className="caveat-chip" onClick={() => onWord(verseTarget)}>
                     original · {caveat.word}
-                  </span>
+                  </button>
                 )}
               </p>
               {ow && (
@@ -138,7 +140,7 @@ export function ChapterBlock({
                     <span
                       key={wi}
                       className="orig-word"
-                      onClick={() =>
+                      {...pressable(() =>
                         onWord({
                           kind: 'orig',
                           text: w.t,
@@ -149,8 +151,7 @@ export function ChapterBlock({
                           book,
                           chapter,
                           verse,
-                        })
-                      }
+                        }))}
                     >
                       {w.t}{' '}
                     </span>
@@ -165,22 +166,23 @@ export function ChapterBlock({
         return (
           <p
             key={verse}
-            className={`verse${marked ? ' marked' : ''}`}
+            className={`verse${marked ? ' marked' : ''}${hl ? ' is-highlight' : ''}`}
             id={verseId}
-            style={hl ? { background: 'rgba(201,162,39,0.15)' } : undefined}
+            data-hl={hl || undefined}
           >
             <span className="verse-num">{verse}</span>
-            <span className="verse-text" onClick={() => onWord(verseTarget)}>
+            <span className="verse-text" {...pressable(() => onWord(verseTarget))}>
               {text}
             </span>
             {caveat && (
-              <span
+              <button
+                type="button"
                 className="caveat-chip"
                 title={caveat.then}
                 onClick={() => onWord(verseTarget)}
               >
                 original · {caveat.word}
-              </span>
+              </button>
             )}
           </p>
         )

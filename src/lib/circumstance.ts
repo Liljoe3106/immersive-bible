@@ -289,18 +289,129 @@ export const SITUATIONS: Situation[] = [
 const CIRC_HINT =
   /\b(i feel|i'm|im |feeling|when i|struggling with|help with|dealing with|about my)\b/i
 
+/** Everyday worry words mapped to the topic chips. Whole words only. */
+const WORRY_WORDS: Record<string, string[]> = {
+  illness: [
+    'hospital', 'surgery', 'operation', 'cancer', 'diagnosis', 'diagnosed', 'doctor', 'doctors',
+    'chemo', 'scan', 'ill', 'unwell', 'injury', 'injured', 'treatment', 'test results', 'ward',
+    'hurt', 'hurting', 'heal', 'medical',
+  ],
+  fear: [
+    'scared', 'panic', 'panicking', 'nervous', 'worry', 'worrying', 'stress', 'stressed', 'dread',
+    'terrified', 'frightened', 'uneasy', 'overthinking', 'exam', 'exams',
+  ],
+  grief: [
+    'died', 'dying', 'funeral', 'passed away', 'widow', 'widowed', 'heartbroken', 'loss', 'lost my',
+    'miscarriage', 'bereavement', 'sad', 'sadness', 'crying',
+  ],
+  betrayal: ['divorce', 'breakup', 'broke up', 'cheated', 'affair', 'lied to me', 'used me'],
+  loneliness: ['no friends', 'nobody', 'on my own', 'left out', 'rejected', 'single'],
+  money: [
+    'rent', 'mortgage', 'redundant', 'redundancy', 'laid off', 'unemployed', 'broke', 'cost of living',
+    'loan', 'salary',
+  ],
+  work: ['fired', 'interview', 'colleague', 'colleagues', 'manager', 'office', 'promotion', 'deadline'],
+  parenting: ['baby', 'son', 'daughter', 'teenager', 'toddler', 'pregnant', 'my kids', 'mum', 'mom', 'dad'],
+  insomnia: ['awake', 'up all night', 'nightmares', 'sleep'],
+  exhaustion: ['overwhelmed', 'drained', 'worn out', 'no energy', 'stretched'],
+  shame: ['guilty', 'regret', 'embarrassed', 'failure', 'failed', 'messed up'],
+  anger: ['annoyed', 'frustrated', 'irritated', 'mad', 'hate'],
+  hope: ['depressed', 'depression', 'hopeless', 'low', 'down', 'pointless', 'give up'],
+  doubt: ['confused', 'questioning', 'is god real', 'faith'],
+  decision: ['choose', 'choosing', 'options', 'move house', 'moving', 'what to do', 'which way'],
+  envy: ['compare', 'comparing', 'unfair that'],
+  homesick: ['miss home', 'moved away', 'new city', 'abroad'],
+  peace: ['relax', 'silence', 'settle'],
+  gratitude: ['blessed', 'thank you'],
+  joy: ['happy', 'celebrate', 'celebrating', 'good news'],
+  waiting: ['patient', 'not yet', 'still waiting'],
+  injustice: ['bullied', 'bully', 'racism', 'discrimination', 'cheated out'],
+  forgiveness: ['sorry', 'apologise', 'apologize', 'grudge'],
+  temptation: ['drinking', 'gambling', 'porn', 'relapse', 'craving'],
+}
+
+function escapeRe(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Whole-word (or whole-phrase) match, allowing simple endings like -s, -ed, -ing. */
+export function hasWord(text: string, word: string): boolean {
+  const w = word.trim().toLowerCase()
+  if (!w) return false
+  const re = new RegExp(`(^|[^a-z'])${escapeRe(w)}(s|es|d|ed|ing)?($|[^a-z'])`, 'i')
+  return re.test(text)
+}
+
+function normal(q: string) {
+  return q
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export function editDistance(a: string, b: string): number {
+  if (a === b) return 0
+  const m = a.length
+  const n = b.length
+  if (!m) return n
+  if (!n) return m
+  let prev = Array.from({ length: n + 1 }, (_, j) => j)
+  for (let i = 1; i <= m; i++) {
+    const cur = [i]
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    }
+    prev = cur
+  }
+  return prev[n]
+}
+
+/** Score every topic against the words typed. Highest first, zero scores dropped. */
+export function scoreSituations(q: string): { situation: Situation; score: number }[] {
+  const lower = normal(q)
+  if (!lower) return []
+  const out: { situation: Situation; score: number }[] = []
+  for (const s of SITUATIONS) {
+    let score = 0
+    if (s.id === lower || s.label.toLowerCase() === lower) score += 100
+    for (const k of s.keywords) if (hasWord(lower, k)) score += 3 + (k.includes(' ') ? 1 : 0)
+    for (const k of WORRY_WORDS[s.id] ?? []) if (hasWord(lower, k)) score += 2 + (k.includes(' ') ? 1 : 0)
+    if (score > 0) out.push({ situation: s, score })
+  }
+  return out.sort((a, b) => b.score - a.score)
+}
+
+/** Closest topic chip by spelling, for typos like "anxeity" or "lonley". */
+export function nearestSituation(q: string): Situation | null {
+  const tokens = normal(q).split(/[^a-z']+/).filter((t) => t.length >= 4)
+  let best: { s: Situation; d: number } | null = null
+  for (const s of SITUATIONS) {
+    const words = [s.label.toLowerCase(), s.id, ...s.keywords, ...(WORRY_WORDS[s.id] ?? [])].filter(
+      (w) => !w.includes(' '),
+    )
+    for (const t of tokens) {
+      for (const w of words) {
+        if (Math.abs(w.length - t.length) > 2) continue
+        const d = editDistance(t, w)
+        const limit = t.length >= 7 ? 2 : 1
+        if (d <= limit && (!best || d < best.d)) best = { s, d }
+      }
+    }
+  }
+  return best?.s ?? null
+}
+
+/** Should a search box query go to Name it instead of word search? */
 export function looksLikeCircumstance(q: string): boolean {
   const t = q.trim()
   if (!t) return false
   if (parseReference(t)) return false
   if (CIRC_HINT.test(t)) return true
-  const lower = t.toLowerCase()
-  return SITUATIONS.some(
-    (s) =>
-      s.id === lower ||
-      s.label.toLowerCase() === lower ||
-      s.keywords.some((k) => lower.includes(k)),
-  )
+  const lower = normal(t)
+  if (SITUATIONS.some((s) => s.id === lower || s.label.toLowerCase() === lower)) return true
+  // Longer sentences about a situation ("my dad is in hospital") go to Name it; single words stay a word search.
+  return lower.split(' ').length >= 3 && scoreSituations(lower).length > 0
 }
 
 async function hydrateMatch(
@@ -320,40 +431,53 @@ async function hydrateMatch(
   }
 }
 
-export async function nameCircumstance(q: string): Promise<{
-  source: 'curated' | 'keyword' | 'xai'
+export type NameResult = {
+  source: 'curated' | 'keyword' | 'xai' | 'nearest' | 'none'
   situation?: Situation
+  /** Other topics that also fit what was typed. */
+  related?: string[]
+  /** Closest topic chip when nothing matched. */
+  nearest?: string
   matches: SituationMatch[]
   note?: string
-}> {
-  const key = `then:circ:3:${q.trim().toLowerCase()}`
+}
+
+export async function nameCircumstance(q: string): Promise<NameResult> {
+  const key = `then:circ:4:${q.trim().toLowerCase()}`
   try {
     const cached = localStorage.getItem(key)
-    if (cached) return JSON.parse(cached) as Awaited<ReturnType<typeof nameCircumstance>>
+    if (cached) return JSON.parse(cached) as NameResult
   } catch {
     /* ignore */
   }
 
   const index = await loadSearchIndex()
-  const lower = q.trim().toLowerCase()
-
-  const curated =
-    SITUATIONS.find(
-      (s) =>
-        s.id === lower ||
-        s.label.toLowerCase() === lower ||
-        s.keywords.some((k) => lower === k || lower.includes(k)),
-    ) ?? null
-
-  if (curated) {
-    const matches = await Promise.all(curated.matches.map((m) => hydrateMatch(m, index)))
-    const result = { source: 'curated' as const, situation: curated, matches }
+  const lower = normal(q)
+  const save = (r: NameResult) => {
     try {
-      localStorage.setItem(key, JSON.stringify(result))
+      localStorage.setItem(key, JSON.stringify(r))
     } catch {
       /* ignore */
     }
-    return result
+    return r
+  }
+
+  const ranked = scoreSituations(lower)
+  if (ranked.length) {
+    const curated = ranked[0].situation
+    const matches = await Promise.all(curated.matches.map((m) => hydrateMatch(m, index)))
+    return save({
+      source: 'curated',
+      situation: curated,
+      related: ranked.slice(1, 4).map((r) => r.situation.id),
+      matches,
+    })
+  }
+
+  const near = nearestSituation(lower)
+  if (near) {
+    const matches = await Promise.all(near.matches.map((m) => hydrateMatch(m, index)))
+    return save({ source: 'nearest', situation: near, matches })
   }
 
   // Optional xAI -- never crash if missing
@@ -394,17 +518,11 @@ export async function nameCircumstance(q: string): Promise<{
           const matches = await Promise.all(
             parsed.refs.slice(0, 6).map((m) => hydrateMatch(m, index)),
           )
-          const result = {
-            source: 'xai' as const,
+          return save({
+            source: 'xai',
             matches,
-            note: 'Suggested via xAI; verify in context.',
-          }
-          try {
-            localStorage.setItem(key, JSON.stringify(result))
-          } catch {
-            /* ignore */
-          }
-          return result
+            note: 'Suggested verses. Read each one in its chapter.',
+          })
         }
       }
     } catch {
@@ -412,19 +530,19 @@ export async function nameCircumstance(q: string): Promise<{
     }
   }
 
-  // Keyword fallback against search index
-  const tokens = lower.split(/\W+/).filter((t) => t.length > 3)
-  const scored = new Map<string, { hit: SearchHit; score: number }>()
-  for (const hit of index) {
-    const text = hit[3].toLowerCase()
-    let score = 0
-    for (const t of tokens) if (text.includes(t)) score++
-    if (score === 0) continue
-    const k = `${hit[0]}:${hit[1]}:${hit[2]}`
-    const prev = scored.get(k)
-    if (!prev || score > prev.score) scored.set(k, { hit, score })
+  // Whole-word fallback against the verse index.
+  const STOP = new Set(['about', 'after', 'again', 'being', 'could', 'feel', 'from', 'have', 'just', 'like', 'really', 'that', 'there', 'they', 'this', 'what', 'when', 'with', 'would', 'your', 'some', 'very', 'been', 'into', 'over', 'feeling'])
+  const tokens = lower.split(/[^a-z']+/).filter((t) => t.length > 3 && !STOP.has(t))
+  const res = tokens.map((t) => new RegExp(`(^|[^a-z])${escapeRe(t)}(s|es|ed|ing)?($|[^a-z])`, 'i'))
+  const scored: { hit: SearchHit; score: number }[] = []
+  if (res.length) {
+    for (const hit of index) {
+      let score = 0
+      for (const re of res) if (re.test(hit[3])) score++
+      if (score > 0) scored.push({ hit, score })
+    }
   }
-  const top = [...scored.values()]
+  const top = scored
     .sort((a, b) => b.score - a.score)
     .slice(0, 8)
     .map(({ hit }) => ({
@@ -435,15 +553,11 @@ export async function nameCircumstance(q: string): Promise<{
       text: hit[3],
     }))
 
-  const result = {
-    source: 'keyword' as const,
+  return save({
+    source: top.length ? 'keyword' : 'none',
     matches: top,
-    note: top.length ? undefined : 'No close matches. Try a feeling word like grief or hope.',
-  }
-  try {
-    localStorage.setItem(key, JSON.stringify(result))
-  } catch {
-    /* ignore */
-  }
-  return result
+    note: top.length
+      ? undefined
+      : 'Nothing close yet. Try a feeling word like grief, fear or hope, or tap a topic above.',
+  })
 }

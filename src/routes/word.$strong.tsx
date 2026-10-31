@@ -5,6 +5,7 @@ import type { StrongEntry } from '../lib/bible/types'
 import { BOOK_ALIASES } from '../lib/bible/books'
 import { THEN_CARDS, thenCardById } from '../lib/then-sense'
 import { useAppStore } from '../lib/store'
+import { useTitle } from '../hooks/use-title'
 
 export const Route = createFileRoute('/word/$strong')({
   component: WordPage,
@@ -25,6 +26,7 @@ function parseOpenRef(ref: string): { book: string; chapter: number; verse?: num
 
 function WordPage() {
   const { strong: raw } = Route.useParams()
+  useTitle(`Word study ${raw.toUpperCase()}`)
   const strong = raw.toUpperCase()
   const [entry, setEntry] = useState<StrongEntry | null>(null)
   const toggle = useAppStore((s) => s.toggleStrongBookmark)
