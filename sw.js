@@ -1,65 +1,328 @@
-/* Immersive Bible SW: tiered cache. Never precache full chamber videos on first visit.
- * Paths are relative to the SW location so GitHub Pages project base works. */
-const VERSION = 'ib-v3'
+/* The Immersive Bible service worker.
+ *
+ * Caches
+ *   ib-shell-<build>  app shell (index, hashed JS/CSS, core fonts, icons, chamber stills).
+ *                     Filled at install from the list the build injects below. Replaced each deploy.
+ *   ib-assets         other hashed /assets/ files (extra font subsets) cached on first use.
+ *   ib-data           scripture JSON (data/en, data/orig, strongs, search) cached when opened.
+ *                     Kept across deploys, refreshed in the background when online.
+ *   ib-media          chamber videos and the ambient bed, cached in full on first play.
+ *                     Capped (MEDIA_MAX_BYTES). Range requests are answered from the cached
+ *                     file as proper 206 partial responses, or passed straight to the network
+ *                     when not cached, so <video> and <audio> seeking keeps working.
+ *
+ * Paths are relative to the SW location so the GitHub Pages project base works.
+ */
+const BUILD_ID = "0a38209845"
+const PRECACHE = ["index.html","manifest.webmanifest","favicon.svg","apple-touch-icon.png","icon-192.png","icon-192-maskable.png","chamber/poster.jpg","chamber/parchment.jpg","chamber/open-stills/blank-parchment-best.jpg","chamber/page-turn.mp3","assets/circumstance-DOddMC2a.js","assets/cormorant-garamond-latin-400-normal-B-1hWBU7.woff2","assets/cormorant-garamond-latin-500-normal-BsRWmXhO.woff2","assets/cormorant-garamond-latin-600-normal-Co1r35X9.woff2","assets/cormorant-garamond-latin-700-normal-DajfzrDU.woff2","assets/cormorant-garamond-latin-ext-400-normal-Drx2k2n9.woff2","assets/cormorant-garamond-latin-ext-500-normal-CH1kM7og.woff2","assets/cormorant-garamond-latin-ext-600-normal-DaBc-lu7.woff2","assets/cormorant-garamond-latin-ext-700-normal-CNjt5vTB.woff2","assets/gallery-Cq-54puD.js","assets/guide-EVrJxw6N.js","assets/guide._plan-I1WsP_xU.js","assets/guide.index-Badcm7ce.js","assets/index-CvDBpstH.js","assets/index-DzNvvOMm.css","assets/link-Bl5VDxM2.js","assets/load-DjBcfy7h.js","assets/marks-D3quCPhF.js","assets/matchContext-CvbQVPR-.js","assets/name-BFm9Iph_.js","assets/not-found-i5RsCZif.js","assets/noto-serif-greek-400-normal-B3ECBf8v.woff2","assets/noto-serif-greek-700-normal-Cx5ck3FK.woff2","assets/noto-serif-greek-ext-400-normal-fffGn9To.woff2","assets/noto-serif-greek-ext-700-normal-BdVf8m3e.woff2","assets/noto-serif-hebrew-hebrew-400-normal-v_xU1ROG.woff2","assets/noto-serif-hebrew-latin-400-normal-D22OmSTw.woff2","assets/noto-serif-hebrew-latin-ext-400-normal-BiXgBxzW.woff2","assets/noto-serif-latin-400-normal-BV_iYGc9.woff2","assets/noto-serif-latin-700-normal-CIw17UNa.woff2","assets/noto-serif-latin-ext-400-normal-CMAsOjEZ.woff2","assets/noto-serif-latin-ext-700-normal-BRvgVta8.woff2","assets/preload-helper-BvqXFD2j.js","assets/read-EVrJxw6N.js","assets/read._book._chapter-B9ucZh8U.js","assets/read.index-B7KfpwL8.js","assets/routes-KNfKxoPV.js","assets/search-DhQuHlLi.js","assets/then-sense-DbupIp3e.js","assets/tour._slug-Bffi4unI.js","assets/use-ambient-label-B6X7Tffu.js","assets/useNavigate-C-Y4rKNu.js","assets/useRouter-BOAPZDg1.js","assets/useSelector-JG7hwUKQ.js","assets/word._strong-CbXDmEY9.js"]
+
 const BASE = self.location.pathname.replace(/\/[^/]*$/, '/')
-const PRECACHE = [
-  BASE,
-  BASE + 'manifest.webmanifest',
-  BASE + 'favicon.svg',
-  BASE + 'apple-touch-icon.png',
-  BASE + 'icon-192.png',
-  BASE + 'icon-512.png',
-  BASE + 'icon-192-maskable.png',
-  BASE + 'icon-512-maskable.png',
-  BASE + 'chamber/poster.jpg',
-  BASE + 'chamber/bed.mp3',
-  BASE + 'chamber/page-turn.mp3',
-  BASE + 'chamber/parchment.jpg',
-]
+const SHELL = 'ib-shell-' + BUILD_ID
+const ASSETS = 'ib-assets'
+const DATA = 'ib-data'
+const MEDIA = 'ib-media'
+const KEEP = new Set([SHELL, ASSETS, DATA, MEDIA])
+const INDEX_URL = new URL(BASE + 'index.html', self.location.origin).href
+
+/** Only these media files are kept for offline. Everything else streams. */
+const MEDIA_ALLOW = [/\/chamber\/home\.mp4$/, /\/chamber\/open-zoom\.mp4$/, /\/chamber\/open\.mp4$/, /\/chamber\/bed\.mp3$/]
+const MEDIA_MAX_BYTES = 16 * 1024 * 1024
+const MEDIA_MAX_FILE = 8 * 1024 * 1024
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(VERSION).then((cache) => cache.addAll(PRECACHE)).then(() => self.skipWaiting()),
+    (async () => {
+      const cache = await caches.open(SHELL)
+      const urls = PRECACHE.map((p) => BASE + p)
+      // cache: 'reload' skips the HTTP cache so a fresh deploy is not mixed with stale files.
+      await Promise.all(
+        urls.map(async (u) => {
+          const res = await fetch(new Request(u, { cache: 'reload' }))
+          if (!res.ok) throw new Error('precache ' + u + ' ' + res.status)
+          await cache.put(u, res)
+        }),
+      )
+      // First install, or upgrading from the old ib-v* worker that served a stale index:
+      // take over straight away. Otherwise wait for the page to say so (gentle update).
+      const keys = await caches.keys()
+      const hasLegacy = keys.some((k) => /^ib-v\d+$/.test(k))
+      const hasShell = keys.some((k) => k.startsWith('ib-shell-') && k !== SHELL)
+      if (hasLegacy || !hasShell) await self.skipWaiting()
+    })(),
   )
 })
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))),
-    ).then(() => self.clients.claim()),
+    (async () => {
+      const keys = await caches.keys()
+      await Promise.all(keys.filter((k) => !KEEP.has(k)).map((k) => caches.delete(k)))
+      if (self.registration.navigationPreload) {
+        try {
+          await self.registration.navigationPreload.disable()
+        } catch {
+          /* */
+        }
+      }
+      await self.clients.claim()
+    })(),
   )
 })
 
-function isVideo(url) {
-  return /\.(mp4|webm|mov)(\?|$)/i.test(url) || url.includes('/chamber/home') || url.includes('/chamber/open')
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting()
+  if (event.data && event.data.type === 'CACHE_MEDIA' && Array.isArray(event.data.urls)) {
+    event.waitUntil(
+      Promise.all(
+        event.data.urls.map((u) => {
+          const url = new URL(u, self.location.href)
+          return inScope(url) && mediaAllowed(url) ? saveMediaInBackground(url) : null
+        }),
+      ),
+    )
+  }
+  if (event.data && event.data.type === 'GET_VERSION' && event.ports && event.ports[0]) {
+    event.ports[0].postMessage({ build: BUILD_ID })
+  }
+})
+
+function inScope(url) {
+  return url.origin === self.location.origin && url.pathname.startsWith(BASE)
+}
+
+function isMedia(url) {
+  return /\.(mp4|webm|mov|m4v|mp3|m4a|ogg|wav)$/i.test(url.pathname)
 }
 
 self.addEventListener('fetch', (event) => {
   const req = event.request
   if (req.method !== 'GET') return
-  const url = req.url
-  // Never cache-intercept large videos on first visit; network only.
-  if (isVideo(url)) return
+  const url = new URL(req.url)
+  if (!inScope(url)) return
 
-  // Critical JSON / static: stale-while-revalidate
-  if (url.includes('/data/') || url.includes('/chamber/')) {
-    event.respondWith(
-      caches.open(VERSION).then(async (cache) => {
-        const cached = await cache.match(req)
-        const network = fetch(req)
-          .then((res) => {
-            if (res && res.ok) cache.put(req, res.clone())
-            return res
-          })
-          .catch(() => cached)
-        return cached || network
-      }),
-    )
+  if (req.mode === 'navigate') {
+    event.respondWith(handleNavigate(event))
     return
   }
-
-  event.respondWith(
-    caches.match(req).then((cached) => cached || fetch(req).catch(() => cached)),
-  )
+  if (isMedia(url)) {
+    event.respondWith(handleMedia(event, url))
+    return
+  }
+  const path = url.pathname.slice(BASE.length)
+  if (path.startsWith('data/')) {
+    event.respondWith(staleWhileRevalidate(event, DATA))
+    return
+  }
+  if (path.startsWith('assets/')) {
+    event.respondWith(cacheFirst(req, ASSETS))
+    return
+  }
+  // Other static files (icons, manifest, chamber stills): shell copy first, then network,
+  // remembering anything new in the assets cache.
+  event.respondWith(cacheFirst(req, ASSETS))
 })
+
+/** Network first so new deploys show at once; cached shell when offline. */
+async function handleNavigate(event) {
+  try {
+    // Revalidate with the server (cheap 304 on GitHub Pages) so a new deploy shows straight
+    // away instead of after the 10 minute HTTP cache.
+    const res = await fetch(event.request.url, { cache: 'no-cache', credentials: 'same-origin' })
+    if (res.ok) return res
+    // GitHub Pages serves deep links from 404.html with status 404; that is still the app,
+    // so hand it over as a normal page.
+    if (res.status === 404 && (res.headers.get('content-type') || '').includes('text/html')) {
+      return new Response(await res.blob(), { status: 200, headers: res.headers })
+    }
+    throw new Error('nav ' + res.status)
+  } catch {
+    const cached =
+      (await caches.match(INDEX_URL)) || (await caches.match(BASE, { ignoreSearch: true }))
+    if (cached) return cached
+    return new Response('<!doctype html><meta charset="utf-8"><title>The Immersive Bible</title><body style="background:#0a0a08;color:#d8c9a8;font-family:serif;display:grid;place-items:center;height:100vh;margin:0"><p>You are offline. Open the app once with a connection so it can be saved for offline reading.</p>', {
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })
+  }
+}
+
+/** Shell files are precached without their ?v= query; the shell is rebuilt each deploy. */
+async function matchShell(req) {
+  const shell = await caches.open(SHELL)
+  return (await shell.match(req)) || (await shell.match(req, { ignoreSearch: true }))
+}
+
+async function cacheFirst(req, cacheName) {
+  const cached = (await matchShell(req)) || (await caches.match(req))
+  if (cached) return cached
+  const res = await fetch(req)
+  if (res && res.ok && res.type === 'basic') {
+    const cache = await caches.open(cacheName)
+    await cache.put(req, res.clone())
+  }
+  return res
+}
+
+async function staleWhileRevalidate(event, cacheName) {
+  const req = event.request
+  const cache = await caches.open(cacheName)
+  const cached = await cache.match(req)
+  const network = fetch(req)
+    .then(async (res) => {
+      if (res && res.ok && res.type === 'basic') await cache.put(req, res.clone())
+      return res
+    })
+    .catch(() => null)
+  if (cached) {
+    event.waitUntil(network)
+    return cached
+  }
+  const res = await network
+  return res || Response.error()
+}
+
+/* ---------- media ---------- */
+
+function mediaKey(url) {
+  // Keyed with the ?v= query so a new video version is fetched fresh.
+  return url.href
+}
+
+function mediaAllowed(url) {
+  return MEDIA_ALLOW.some((re) => re.test(url.pathname))
+}
+
+async function handleMedia(event, url) {
+  const req = event.request
+  const range = req.headers.get('range')
+  const cache = await caches.open(MEDIA)
+  const cached = (await cache.match(mediaKey(url))) || (await matchShell(req))
+
+  if (cached) {
+    if (range) return rangeResponse(cached, range)
+    return cached
+  }
+
+  if (!mediaAllowed(url)) return fetch(req)
+
+  if (range) {
+    // Stream this play straight from the network (real 206s), and save a full copy
+    // in the background for next time / offline.
+    event.waitUntil(saveMediaInBackground(url))
+    return fetch(req)
+  }
+
+  // Full GET (the open ritual fetches the whole clip as a Blob): fetch once, keep a copy.
+  const res = await fetch(req)
+  if (res.ok && res.status === 200 && res.type === 'basic') {
+    const len = Number(res.headers.get('content-length') || 0)
+    if (!len || len <= MEDIA_MAX_FILE) {
+      const copy = res.clone()
+      event.waitUntil(putMedia(cache, mediaKey(url), copy))
+    }
+  }
+  return res
+}
+
+const inflight = new Map()
+function saveMediaInBackground(url) {
+  const key = mediaKey(url)
+  if (inflight.has(key)) return inflight.get(key)
+  const p = (async () => {
+    try {
+      const existing = await (await caches.open(MEDIA)).match(key)
+      if (existing) return
+      const conn = self.navigator && self.navigator.connection
+      if (conn && conn.saveData) return
+      const res = await fetch(url.href, { cache: 'no-store' })
+      if (!res.ok || res.status !== 200) return
+      const len = Number(res.headers.get('content-length') || 0)
+      if (len && len > MEDIA_MAX_FILE) return
+      const cache = await caches.open(MEDIA)
+      await putMedia(cache, key, res)
+    } catch {
+      /* offline or aborted: just stream next time */
+    } finally {
+      inflight.delete(key)
+    }
+  })()
+  inflight.set(key, p)
+  return p
+}
+
+async function putMedia(cache, key, res) {
+  try {
+    const blob = await res.blob()
+    if (blob.size > MEDIA_MAX_FILE) return
+    const pathname = new URL(key).pathname
+    // Drop older versions of the same file (different ?v=).
+    for (const r of await cache.keys()) {
+      if (new URL(r.url).pathname === pathname && r.url !== key) await cache.delete(r)
+    }
+    await cache.put(
+      key,
+      new Response(blob, {
+        status: 200,
+        headers: {
+          'Content-Type': res.headers.get('content-type') || blob.type || 'application/octet-stream',
+          'Content-Length': String(blob.size),
+          'Accept-Ranges': 'bytes',
+          'X-IB-Saved': String(Date.now()),
+        },
+      }),
+    )
+    await trimMedia(cache, key)
+  } catch {
+    /* quota or aborted */
+  }
+}
+
+async function trimMedia(cache, keepKey) {
+  const entries = []
+  let total = 0
+  for (const r of await cache.keys()) {
+    const res = await cache.match(r)
+    if (!res) continue
+    const size = Number(res.headers.get('content-length') || 0)
+    const at = Number(res.headers.get('x-ib-saved') || 0)
+    entries.push({ r, size, at })
+    total += size
+  }
+  entries.sort((a, b) => a.at - b.at)
+  for (const e of entries) {
+    if (total <= MEDIA_MAX_BYTES) break
+    if (e.r.url === keepKey) continue
+    await cache.delete(e.r)
+    total -= e.size
+  }
+}
+
+async function rangeResponse(full, rangeHeader) {
+  const blob = await full.blob()
+  const size = blob.size
+  const m = /bytes=(\d*)-(\d*)/.exec(rangeHeader)
+  if (!m) return new Response(blob, { status: 200, headers: full.headers })
+  let start = m[1] === '' ? NaN : Number(m[1])
+  let end = m[2] === '' ? NaN : Number(m[2])
+  if (Number.isNaN(start)) {
+    // suffix range: last N bytes
+    const n = Number.isNaN(end) ? 0 : end
+    start = Math.max(0, size - n)
+    end = size - 1
+  } else if (Number.isNaN(end) || end >= size) {
+    end = size - 1
+  }
+  if (start >= size || start > end) {
+    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } })
+  }
+  const part = blob.slice(start, end + 1)
+  return new Response(part, {
+    status: 206,
+    statusText: 'Partial Content',
+    headers: {
+      'Content-Type': full.headers.get('content-type') || 'video/mp4',
+      'Content-Length': String(part.size),
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+      'Accept-Ranges': 'bytes',
+    },
+  })
+}
