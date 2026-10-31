@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
 import { BASE_URL } from './lib/asset'
+import { initPwa } from './lib/pwa'
 import './styles.css'
 
 const basepath = BASE_URL.replace(/\/$/, '') || undefined
@@ -25,8 +26,4 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    void navigator.serviceWorker.register(`${BASE_URL}sw.js`).catch(() => {})
-  })
-}
+initPwa()

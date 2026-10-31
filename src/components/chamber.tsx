@@ -11,9 +11,8 @@ import {
 } from '../lib/ambient'
 import { useAmbientSound } from '../hooks/use-ambient-label'
 import { asset } from '../lib/asset'
+import { HOME_SRC, OPEN_SRC } from '../lib/chamber-media'
 
-const HOME_SRC = asset('chamber/home.mp4?v=v3c1')
-const OPEN_SRC = asset('chamber/open-zoom.mp4?v=pullv6b')
 const POSTER = asset('chamber/poster.jpg?v=v3c1')
 /** Network paths (cache-bust). Prefer blob object URLs once prefetched.
  * Wing frames (closed/half/open) are NEVER used in the Continue open ritual —

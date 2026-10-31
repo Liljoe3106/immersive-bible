@@ -5,6 +5,7 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import crypto from 'node:crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -41,6 +42,54 @@ function spaFallback404(): Plugin {
   }
 }
 
+/**
+ * After build, inject the app-shell precache list and a content hash into dist/sw.js.
+ * Big media (chamber videos, ambient bed) and scripture JSON are NOT precached; the
+ * service worker caches them at runtime when the reader opens them.
+ */
+function pwaPrecache(): Plugin {
+  const SHELL_FILES = [
+    'index.html',
+    'manifest.webmanifest',
+    'favicon.svg',
+    'apple-touch-icon.png',
+    'icon-192.png',
+    'icon-192-maskable.png',
+    'chamber/poster.jpg',
+    'chamber/parchment.jpg',
+    'chamber/open-stills/blank-parchment-best.jpg',
+    'chamber/page-turn.mp3',
+  ]
+  // Font subsets the reader actually needs (English, Hebrew, Greek). Others load on demand.
+  const FONT_OK = /-(latin|latin-ext|hebrew|greek|greek-ext)-\d{3}-normal-[^.]+\.woff2$/
+  return {
+    name: 'pwa-precache',
+    apply: 'build',
+    closeBundle() {
+      const dist = path.resolve(__dirname, 'dist')
+      const swPath = path.join(dist, 'sw.js')
+      if (!fs.existsSync(swPath)) return
+      const assets = fs
+        .readdirSync(path.join(dist, 'assets'))
+        .filter((f) => /\.(js|css)$/.test(f) || FONT_OK.test(f))
+        .map((f) => `assets/${f}`)
+      const list = [...SHELL_FILES.filter((f) => fs.existsSync(path.join(dist, f))), ...assets.sort()]
+      const hash = crypto.createHash('sha256')
+      for (const f of list) {
+        hash.update(f)
+        hash.update(fs.readFileSync(path.join(dist, f)))
+      }
+      const swSrc = fs.readFileSync(swPath, 'utf8')
+      hash.update(swSrc)
+      const id = hash.digest('hex').slice(0, 10)
+      const out = swSrc
+        .replace("'__BUILD_ID__'", JSON.stringify(id))
+        .replace('/*__PRECACHE__*/ []', JSON.stringify(list))
+      fs.writeFileSync(swPath, out)
+    },
+  }
+}
+
 // Set GITHUB_PAGES=true in CI so asset URLs use `/immersive-bible/`. Local dev/build stay at `/`.
 export default defineConfig({
   base: process.env.GITHUB_PAGES === 'true' ? '/immersive-bible/' : '/',
@@ -50,6 +99,7 @@ export default defineConfig({
     tailwindcss(),
     excludeChamberBackup(),
     spaFallback404(),
+    pwaPrecache(),
   ],
   resolve: {
     alias: {
