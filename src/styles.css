@@ -1666,6 +1666,13 @@ button.book-index-row {
   color: var(--gold);
 }
 .chamber-plan-name { margin: 0 0 0.45rem; font-size: 0.9rem; color: var(--hud); }
+.chamber-streak {
+  margin: 0.6rem 0 0;
+  font-family: var(--serif-display);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+}
 
 /* Search / Name it forms with a visible button */
 .search-form { display: flex; gap: 0.6rem; align-items: flex-end; }

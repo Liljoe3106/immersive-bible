@@ -130,6 +130,7 @@ export function Chamber() {
   const guidePlanId = useAppStore((s) => s.guidePlanId)
   const guideDay = useAppStore((s) => s.guideDay)
   const guideDone = useAppStore((s) => s.guideDone)
+  const streak = useAppStore((s) => s.streak)
   const returning = ritualsSeen > 0
   const chamberResumeAt = useAppStore((s) => s.chamberResumeAt)
   const setChamberResumeAt = useAppStore((s) => s.setChamberResumeAt)
@@ -167,6 +168,8 @@ export function Chamber() {
   const [stillFlash, setStillFlash] = useState(false)
   const [reducedMotion] = useState(() => prefersReducedMotion())
   const navigated = useRef(false)
+  /** Where the open ritual lands. Null means the last place read. */
+  const openTarget = useRef<{ book: string; chapter: number } | null>(null)
   const openStarted = useRef(false)
   const openPlayBegun = useRef(false)
   const ritualShown = useRef(false)
@@ -492,7 +495,7 @@ export function Chamber() {
     setChamberResumeAt(null)
     armReaderSettle()
     unduckAmbient(1200)
-    const { book, chapter } = place
+    const { book, chapter } = openTarget.current ?? place
     const nav = () => {
       void navigate({
         to: '/read/$book/$chapter',
@@ -807,6 +810,14 @@ export function Chamber() {
   const planDay = plan ? Math.min(Math.max(guideDay, 0), plan.days.length - 1) : 0
   const planDone = plan ? (guideDone[plan.id] ?? []).length : 0
   const planToday = plan?.days[planDay] ?? []
+  // An active plan with days left: the main button opens today's reading, Continue becomes the second choice.
+  const planFinished = !!plan && planDone >= plan.days.length
+  const planFirst = plan && !planFinished ? planToday[0] : undefined
+  const openTo = (target: { book: string; chapter: number } | null) => {
+    if (opening || openStarted.current) return
+    openTarget.current = target
+    startOpen()
+  }
 
   const stillSrc =
     stillFrame && stillUrls
@@ -921,16 +932,41 @@ export function Chamber() {
           </p>
 
           <div className="chamber-row" style={{ marginTop: '0.85rem' }}>
-            <button
-              type="button"
-              className="chamber-ghost chamber-primary"
-              onClick={(e) => {
-                e.stopPropagation()
-                startOpen()
-              }}
-            >
-              {ctaLabel}
-            </button>
+            {planFirst ? (
+              <>
+                <button
+                  type="button"
+                  className="chamber-ghost chamber-primary"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openTo(planFirst)
+                  }}
+                >
+                  Today's reading: {formatDayReading(planToday)}
+                </button>
+                <button
+                  type="button"
+                  className="chamber-ghost"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    openTo(null)
+                  }}
+                >
+                  {ctaLabel}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="chamber-ghost chamber-primary"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openTo(null)
+                }}
+              >
+                {ctaLabel}
+              </button>
+            )}
             <button
               type="button"
               className="chamber-ghost"
@@ -959,31 +995,19 @@ export function Chamber() {
             </p>
           )}
 
+          {streak > 0 && (
+            <p className="chamber-streak">
+              Reading streak: {streak} day{streak === 1 ? '' : 's'}
+            </p>
+          )}
+
           {plan && (
             <div className="chamber-plan" onClick={stopHud}>
               <p className="chamber-plan-label">Reading plan</p>
               <p className="chamber-plan-name">
-                {plan.name}: day {planDay + 1} of {plan.days.length}
-                {planDone > 0 ? ` · ${planDone} done` : ''}
+                {plan.name}: {planFinished ? 'all days done' : `day ${planDay + 1} of ${plan.days.length}`}
+                {planDone > 0 && !planFinished ? ` · ${planDone} done` : ''}
               </p>
-              {planToday[0] && (
-                <button
-                  type="button"
-                  className="chamber-ghost"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (navigated.current) return
-                    navigated.current = true
-                    persistHomeTime()
-                    void navigate({
-                      to: '/read/$book/$chapter',
-                      params: { book: planToday[0].book, chapter: String(planToday[0].chapter) },
-                    })
-                  }}
-                >
-                  Today: {formatDayReading(planToday)}
-                </button>
-              )}
             </div>
           )}
 
