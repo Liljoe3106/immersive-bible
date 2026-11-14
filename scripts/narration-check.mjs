@@ -30,3 +30,22 @@ for (const f of fs.readdirSync('public/data/en')) {
   }
 }
 console.log(`narration-check: ok (${verses} verses chunk cleanly)`)
+
+// Grok recordings: verse lookup, and every chapter in the manifest has its MP3 and a full timing file.
+const { verseAt } = await import('../src/lib/narration.ts')
+assert.equal(verseAt([0, 2.5, 6], 0), 1)
+assert.equal(verseAt([0.8, 2.5, 6], 0.1), 1, 'before verse 1 starts')
+assert.equal(verseAt([0, 2.5, 6], 2.5), 2)
+assert.equal(verseAt([0, 2.5, 6], 5.99), 2)
+assert.equal(verseAt([0, 2.5, 6], 99), 3)
+const manifest = JSON.parse(fs.readFileSync('src/lib/narration-audio.json', 'utf8'))
+for (const key of manifest.chapters) {
+  const [book, ch] = [key.slice(0, key.lastIndexOf('-')), Number(key.slice(key.lastIndexOf('-') + 1))]
+  assert.ok(fs.existsSync(`public/narration/grok/${key}.mp3`), `${key}: mp3 missing`)
+  const t = JSON.parse(fs.readFileSync(`public/narration/grok/${key}.json`, 'utf8'))
+  const n = JSON.parse(fs.readFileSync(`public/data/en/${book}.json`, 'utf8'))[ch - 1].length
+  assert.equal(t.v.length, n, `${key}: one start time per verse`)
+  for (let i = 1; i < t.v.length; i++) assert.ok(t.v[i] >= t.v[i - 1], `${key}: times ascend`)
+  assert.ok(t.v.at(-1) < t.d, `${key}: last verse starts before the end`)
+}
+console.log(`narration-check: ok (${manifest.chapters.length} Grok-recorded chapters)`)

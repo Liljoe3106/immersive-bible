@@ -74,3 +74,17 @@ export function chunkVerse(text: string, max = 220): string[] {
   if (cur.trim()) out.push(cur.trim())
   return out
 }
+
+/** 1-based verse being read at time t (seconds), from the verse start times. */
+export function verseAt(starts: readonly number[], t: number): number {
+  if (!starts.length) return 1
+  let lo = 0
+  let hi = starts.length - 1
+  if (t < starts[0]) return 1
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1
+    if (starts[mid] <= t) lo = mid
+    else hi = mid - 1
+  }
+  return lo + 1
+}

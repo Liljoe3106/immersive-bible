@@ -10,11 +10,13 @@
  *                     Capped (MEDIA_MAX_BYTES). Range requests are answered from the cached
  *                     file as proper 206 partial responses, or passed straight to the network
  *                     when not cached, so <video> and <audio> seeking keeps working.
+ *   ib-narration      pre-recorded chapter narration (narration/grok/*.mp3), saved after first play,
+ *                     oldest dropped past NARR_MAX_BYTES. Never precached.
  *
  * Paths are relative to the SW location so the GitHub Pages project base works.
  */
 /** Bump SW_VERSION on releases that change app behaviour, so installed copies update. */
-const SW_VERSION = 'v4-2026-11-14-read-aloud'
+const SW_VERSION = 'v5-2026-11-14-grok-voice'
 const BUILD_ID = SW_VERSION + '-' + '__BUILD_ID__'
 const PRECACHE = /*__PRECACHE__*/ []
 
@@ -23,13 +25,17 @@ const SHELL = 'ib-shell-' + BUILD_ID
 const ASSETS = 'ib-assets'
 const DATA = 'ib-data'
 const MEDIA = 'ib-media'
-const KEEP = new Set([SHELL, ASSETS, DATA, MEDIA])
+const NARR = 'ib-narration'
+const KEEP = new Set([SHELL, ASSETS, DATA, MEDIA, NARR])
 const INDEX_URL = new URL(BASE + 'index.html', self.location.origin).href
 
 /** Only these media files are kept for offline. Everything else streams. */
 const MEDIA_ALLOW = [/\/chamber\/home\.mp4$/, /\/chamber\/open-zoom\.mp4$/, /\/chamber\/open\.mp4$/, /\/chamber\/bed\.mp3$/]
 const MEDIA_MAX_BYTES = 16 * 1024 * 1024
 const MEDIA_MAX_FILE = 8 * 1024 * 1024
+const NARR_RE = /\/narration\/grok\/[^/]+\.mp3$/
+const NARR_MAX_BYTES = 48 * 1024 * 1024
+const NARR_MAX_FILE = 12 * 1024 * 1024
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -190,13 +196,21 @@ function mediaKey(url) {
 }
 
 function mediaAllowed(url) {
-  return MEDIA_ALLOW.some((re) => re.test(url.pathname))
+  return MEDIA_ALLOW.some((re) => re.test(url.pathname)) || NARR_RE.test(url.pathname)
+}
+
+/** Which cache and size limits a media file belongs to. */
+function mediaBucket(url) {
+  return NARR_RE.test(url.pathname)
+    ? { name: NARR, maxBytes: NARR_MAX_BYTES, maxFile: NARR_MAX_FILE }
+    : { name: MEDIA, maxBytes: MEDIA_MAX_BYTES, maxFile: MEDIA_MAX_FILE }
 }
 
 async function handleMedia(event, url) {
   const req = event.request
   const range = req.headers.get('range')
-  const cache = await caches.open(MEDIA)
+  const bucket = mediaBucket(url)
+  const cache = await caches.open(bucket.name)
   const cached = (await cache.match(mediaKey(url))) || (await matchShell(req))
 
   if (cached) {
@@ -217,9 +231,9 @@ async function handleMedia(event, url) {
   const res = await fetch(req)
   if (res.ok && res.status === 200 && res.type === 'basic') {
     const len = Number(res.headers.get('content-length') || 0)
-    if (!len || len <= MEDIA_MAX_FILE) {
+    if (!len || len <= bucket.maxFile) {
       const copy = res.clone()
-      event.waitUntil(putMedia(cache, mediaKey(url), copy))
+      event.waitUntil(putMedia(cache, mediaKey(url), copy, bucket))
     }
   }
   return res
@@ -231,16 +245,17 @@ function saveMediaInBackground(url) {
   if (inflight.has(key)) return inflight.get(key)
   const p = (async () => {
     try {
-      const existing = await (await caches.open(MEDIA)).match(key)
+      const bucket = mediaBucket(url)
+      const existing = await (await caches.open(bucket.name)).match(key)
       if (existing) return
       const conn = self.navigator && self.navigator.connection
       if (conn && conn.saveData) return
       const res = await fetch(url.href, { cache: 'no-store' })
       if (!res.ok || res.status !== 200) return
       const len = Number(res.headers.get('content-length') || 0)
-      if (len && len > MEDIA_MAX_FILE) return
-      const cache = await caches.open(MEDIA)
-      await putMedia(cache, key, res)
+      if (len && len > bucket.maxFile) return
+      const cache = await caches.open(bucket.name)
+      await putMedia(cache, key, res, bucket)
     } catch {
       /* offline or aborted: just stream next time */
     } finally {
@@ -251,10 +266,10 @@ function saveMediaInBackground(url) {
   return p
 }
 
-async function putMedia(cache, key, res) {
+async function putMedia(cache, key, res, bucket = { maxBytes: MEDIA_MAX_BYTES, maxFile: MEDIA_MAX_FILE }) {
   try {
     const blob = await res.blob()
-    if (blob.size > MEDIA_MAX_FILE) return
+    if (blob.size > bucket.maxFile) return
     const pathname = new URL(key).pathname
     // Drop older versions of the same file (different ?v=).
     for (const r of await cache.keys()) {
@@ -272,13 +287,13 @@ async function putMedia(cache, key, res) {
         },
       }),
     )
-    await trimMedia(cache, key)
+    await trimMedia(cache, key, bucket.maxBytes)
   } catch {
     /* quota or aborted */
   }
 }
 
-async function trimMedia(cache, keepKey) {
+async function trimMedia(cache, keepKey, maxBytes = MEDIA_MAX_BYTES) {
   const entries = []
   let total = 0
   for (const r of await cache.keys()) {
@@ -291,7 +306,7 @@ async function trimMedia(cache, keepKey) {
   }
   entries.sort((a, b) => a.at - b.at)
   for (const e of entries) {
-    if (total <= MEDIA_MAX_BYTES) break
+    if (total <= maxBytes) break
     if (e.r.url === keepKey) continue
     await cache.delete(e.r)
     total -= e.size
