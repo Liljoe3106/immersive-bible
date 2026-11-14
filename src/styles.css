@@ -1704,3 +1704,59 @@ a.reader-ghost, a.chamber-ghost { display: inline-flex; align-items: center; }
   .book-chrome { padding: 0.25rem 0.5rem 0.5rem; }
   .book-nav { min-width: 52px; font-size: 1.2rem; }
 }
+
+/* Read aloud: soft candle glow on the verse being spoken, and a small floating control. */
+.verse.is-narrating,
+.gap-row.is-narrating {
+  background: rgba(201, 162, 39, 0.16);
+  box-shadow: 0 0 0 0.3rem rgba(201, 162, 39, 0.16), 0 0 1.4rem rgba(201, 162, 39, 0.18);
+  border-radius: 2px;
+}
+.verse,
+.gap-row {
+  transition: background-color 0.7s ease, box-shadow 0.7s ease;
+}
+.narration-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.4rem;
+  background: rgba(14, 12, 9, 0.88);
+  color: var(--vellum);
+  border: 1px solid rgba(201, 162, 39, 0.45);
+  border-radius: 999px;
+  box-shadow: 0 0.5rem 1.6rem rgba(0, 0, 0, 0.45), 0 0 1.2rem rgba(201, 162, 39, 0.15);
+  font-family: var(--serif-display);
+  letter-spacing: 0.06em;
+  backdrop-filter: blur(4px);
+  animation: narration-in 0.5s ease-out;
+}
+.narration-bar button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  color: var(--vellum);
+  border: 1px solid rgba(201, 162, 39, 0.35);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.narration-bar .narration-play { background: rgba(201, 162, 39, 0.22); color: #f3d98a; }
+.narration-where { font-size: 0.85rem; text-transform: uppercase; min-width: 8.5rem; text-align: center; white-space: nowrap; }
+@keyframes narration-in { from { opacity: 0; transform: translate(-50%, 0.6rem); } to { opacity: 1; transform: translate(-50%, 0); } }
+@media (prefers-reduced-motion: reduce) {
+  .narration-bar { animation: none; }
+  .verse, .gap-row { transition: none; }
+}
+/* Listen sits at the start of the Scripture row so the View row does not wrap on phones. */
+@media (max-width: 720px) {
+  .reader-top-scripture:has(.reader-listen) { flex-wrap: nowrap; justify-content: space-between; }
+  .reader-top-scripture:has(.reader-listen) .reader-top-group { width: auto; flex: 0 1 auto; }
+}

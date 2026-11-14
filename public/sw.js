@@ -14,7 +14,7 @@
  * Paths are relative to the SW location so the GitHub Pages project base works.
  */
 /** Bump SW_VERSION on releases that change app behaviour, so installed copies update. */
-const SW_VERSION = 'v3-2026-11-07-plan-home'
+const SW_VERSION = 'v4-2026-11-14-read-aloud'
 const BUILD_ID = SW_VERSION + '-' + '__BUILD_ID__'
 const PRECACHE = /*__PRECACHE__*/ []
 

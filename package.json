@@ -9,7 +9,8 @@
     "typecheck": "tsc -b --pretty false",
     "preview": "vite preview",
     "ingest": "node scripts/ingest-bible.mjs",
-    "qa:verses": "node scripts/verse-coverage.mjs"
+    "qa:verses": "node scripts/verse-coverage.mjs",
+    "qa:narration": "node scripts/narration-check.mjs"
   },
   "dependencies": {
     "@fontsource/cormorant-garamond": "^5.3.0",

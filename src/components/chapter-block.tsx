@@ -14,6 +14,7 @@ export function ChapterBlock({
   orig,
   mode,
   highlightVerse,
+  narrateVerse,
   onWord,
   showCatches = false,
 }: {
@@ -23,6 +24,8 @@ export function ChapterBlock({
   orig: OrigWord[][] | null
   mode: ReadMode
   highlightVerse?: number
+  /** Verse currently being read aloud (soft glow). */
+  narrateVerse?: number
   onWord: (t: WordPanelTarget) => void
   /** Lead chapter: show “N original notes in this chapter” strip. */
   showCatches?: boolean
@@ -61,6 +64,7 @@ export function ChapterBlock({
         const caveat = chips.get(i)
         const ow = orig?.[i] ?? null
         const hl = highlightVerse === verse
+        const nv = narrateVerse === verse
         const verseId = `v-${book}-${chapter}-${verse}`
         const verseTarget: WordPanelTarget = {
           kind: 'verse',
@@ -76,7 +80,7 @@ export function ChapterBlock({
             <div
               key={verse}
               id={verseId}
-              className={`gap-row${marked ? ' marked' : ''}`}
+              className={`gap-row${marked ? ' marked' : ''}${nv ? ' is-narrating' : ''}`}
             >
               <div className="muted">
                 <span className="verse-num">{verse}</span>
@@ -115,7 +119,7 @@ export function ChapterBlock({
             <div
               key={verse}
               id={verseId}
-              className={`gap-row${marked ? ' marked' : ''}`}
+              className={`gap-row${marked ? ' marked' : ''}${nv ? ' is-narrating' : ''}`}
             >
               <p
                 className={`verse${marked ? ' marked' : ''}${hl ? ' is-highlight' : ''}`}
@@ -166,7 +170,7 @@ export function ChapterBlock({
         return (
           <p
             key={verse}
-            className={`verse${marked ? ' marked' : ''}${hl ? ' is-highlight' : ''}`}
+            className={`verse${marked ? ' marked' : ''}${hl ? ' is-highlight' : ''}${nv ? ' is-narrating' : ''}`}
             id={verseId}
             data-hl={hl || undefined}
           >

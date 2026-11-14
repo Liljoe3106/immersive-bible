@@ -9,6 +9,7 @@ import { useAppStore } from '../lib/store'
 import { useAmbientSound } from '../hooks/use-ambient-label'
 import { useLayoutMode } from '../hooks/use-layout'
 import { useTitle } from '../hooks/use-title'
+import { useNarration } from '../hooks/use-narration'
 import { ChapterPicker } from '../components/chapter-picker'
 import { LoadError } from '../components/load-error'
 import { getPlan } from '../lib/reading-plans'
@@ -130,6 +131,22 @@ function ReaderPage() {
 
   const mode = search.mode ?? readMode ?? 'en'
   const isBook = layoutMode === 'book'
+  const narration = useNarration(book, chapter)
+  const narrating = narration.state !== 'idle'
+
+  // Read aloud: keep the spoken verse in view (Scroll view; Book view turns the page itself).
+  useEffect(() => {
+    if (isBook || narration.verse == null) return
+    const el = document.getElementById(`v-${book}-${chapter}-${narration.verse}`)
+    if (!el) return
+    let reduce = false
+    try {
+      reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    } catch {
+      /* */
+    }
+    el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' })
+  }, [narration.verse, isBook, book, chapter])
 
   useTitle(formatRef(book, chapter))
 
@@ -482,6 +499,23 @@ function ReaderPage() {
           </div>
         </div>
         <div className="reader-top-side reader-top-scripture">
+            {narration.supported && (
+              <button
+                type="button"
+                className={`reader-ghost reader-listen${narration.state === 'playing' ? ' active' : ''}`}
+                aria-pressed={narration.state === 'playing'}
+                aria-label={
+                  narration.state === 'playing'
+                    ? 'Pause reading aloud'
+                    : narration.state === 'paused'
+                      ? 'Resume reading aloud'
+                      : 'Read this chapter aloud'
+                }
+                onClick={() => narration.toggle(search.v)}
+              >
+                {narration.state === 'playing' ? 'Pause' : narration.state === 'paused' ? 'Resume' : 'Listen'}
+              </button>
+            )}
           <div className="chamber-row reader-top-group" role="group" aria-label="Scripture text">
             <span className="reader-top-label">Scripture</span>
             <button
@@ -559,6 +593,7 @@ function ReaderPage() {
             mode={mode}
             readSize={readSize}
             highlightVerse={search.v}
+            narrateVerse={narration.verse}
             onWord={setPanel}
             onChapterChange={onBookChapterChange}
             endAction={guideAction(book, chapter)}
@@ -578,6 +613,7 @@ function ReaderPage() {
                 orig={c.orig}
                 mode={mode}
                 highlightVerse={c.book === book && c.chapter === chapter ? search.v : undefined}
+                narrateVerse={c.book === book && c.chapter === chapter ? narration.verse : undefined}
                 onWord={setPanel}
                 showCatches={idx === 0}
               />
@@ -593,6 +629,25 @@ function ReaderPage() {
           </div>
         )}
       </div>
+      {narrating && (
+        <div className="narration-bar" role="group" aria-label="Read aloud">
+          <button
+            type="button"
+            className="narration-play"
+            aria-label={narration.state === 'playing' ? 'Pause reading aloud' : 'Resume reading aloud'}
+            onClick={() => narration.toggle()}
+          >
+            <span aria-hidden>{narration.state === 'playing' ? '❚❚' : '▶'}</span>
+          </button>
+          <span className="narration-where" aria-live="polite">
+            {narration.state === 'playing' ? 'Reading' : 'Paused'}
+            {narration.verse != null ? ` · verse ${narration.verse}` : ''}
+          </span>
+          <button type="button" className="narration-stop" aria-label="Stop reading aloud" onClick={narration.stop}>
+            <span aria-hidden>✕</span>
+          </button>
+        </div>
+      )}
       <WordPanel target={panel} onClose={() => setPanel(null)} />
       {pickerOpen && <ChapterPicker book={book} chapter={chapter} onClose={() => setPickerOpen(false)} />}
     </div>

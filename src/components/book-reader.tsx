@@ -49,6 +49,7 @@ export function BookReader({
   mode,
   readSize,
   highlightVerse,
+  narrateVerse,
   onWord,
   onChapterChange,
   endAction,
@@ -58,6 +59,8 @@ export function BookReader({
   mode: ReadMode
   readSize: 0 | 1 | 2
   highlightVerse?: number
+  /** Verse being read aloud: glow it and turn to its page. */
+  narrateVerse?: number
   onWord: (t: WordPanelTarget) => void
   onChapterChange: (book: string, chapter: number) => void
   /** Shown in the chrome on the last page of the chapter (for example Mark day done). */
@@ -225,6 +228,15 @@ export function BookReader({
   const rightPage = singlePage ? null : (pages[spread * 2 + 1] ?? null)
   const atEnd = !!data && pages.length > 0 && spread >= spreadCount - 1
 
+  // Read aloud: when the spoken verse is on another page, turn to it quietly.
+  useEffect(() => {
+    if (narrateVerse == null || !data || data.book !== book || data.chapter !== chapter || !pages.length) return
+    const idx = pages.findIndex((p) => p.book === book && p.chapter === chapter && narrateVerse - 1 >= p.from && narrateVerse - 1 <= p.to)
+    if (idx < 0) return
+    const target = Math.floor(idx / per)
+    setSpread((s) => (s === target ? s : target))
+  }, [narrateVerse, data, book, chapter, pages, per])
+
   const goChapter = useCallback(
     async (dir: 1 | -1, land: Land) => {
       const cur = dataRef.current ?? { book, chapter }
@@ -369,6 +381,8 @@ export function BookReader({
     const caveat: ThenCard | undefined = chips.get(i)
     const hl = !measureOnly && highlightVerse === verse && d.book === book && d.chapter === chapter
     const verseId = measureOnly ? undefined : `v-${d.book}-${d.chapter}-${verse}`
+    const nv = !measureOnly && narrateVerse === verse && d.book === book && d.chapter === chapter
+    const ownRow = mode === 'gap' || (mode === 'orig' && !!ow)
     const verseTarget: WordPanelTarget = {
       kind: 'verse',
       text,
@@ -415,7 +429,7 @@ export function BookReader({
     const verseLine = (key?: number) => (
       <p
         key={key}
-        className={`verse${marked ? ' marked' : ''}${hl ? ' is-highlight' : ''}`}
+        className={`verse${marked ? ' marked' : ''}${hl ? ' is-highlight' : ''}${nv && !ownRow ? ' is-narrating' : ''}`}
         id={mode === 'gap' || (mode === 'orig' && ow) ? undefined : verseId}
         data-mi={mode === 'gap' || (mode === 'orig' && ow) ? undefined : i}
       >
@@ -429,7 +443,7 @@ export function BookReader({
 
     if (mode === 'orig' && ow) {
       return (
-        <div key={verse} id={verseId} data-mi={i} className={`gap-row${marked ? ' marked' : ''}`}>
+        <div key={verse} id={verseId} data-mi={i} className={`gap-row${marked ? ' marked' : ''}${nv ? ' is-narrating' : ''}`}>
           <div className="muted">
             <span className="verse-num">{verse}</span>
           </div>
@@ -441,7 +455,7 @@ export function BookReader({
     }
     if (mode === 'gap') {
       return (
-        <div key={verse} id={verseId} data-mi={i} className={`gap-row${marked ? ' marked' : ''}`}>
+        <div key={verse} id={verseId} data-mi={i} className={`gap-row${marked ? ' marked' : ''}${nv ? ' is-narrating' : ''}`}>
           {verseLine()}
           {ow && (
             <div className={`orig-line${isHebrew ? '' : ' greek'}`} dir={isHebrew ? 'rtl' : 'ltr'}>

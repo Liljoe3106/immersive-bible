@@ -14,6 +14,8 @@ let needsGesture = false
 let fadeRaf = 0
 let loopRaf = 0
 let duckFactor = 1
+/** Extra, longer-lived dip while read-aloud narration is speaking (stacks with short SFX ducks). */
+let narrationDuck = 1
 
 const TARGET = 0.18
 const FADE_IN_MS = 6000
@@ -83,7 +85,7 @@ function other() {
 }
 
 function effectiveTarget() {
-  return muted ? 0 : TARGET * duckFactor
+  return muted ? 0 : TARGET * duckFactor * narrationDuck
 }
 
 function cancelFade() {
@@ -259,6 +261,14 @@ export function duckAmbient(factor = 0.22, ms = DUCK_MS) {
 
 export function unduckAmbient(ms = 900) {
   duckFactor = 1
+  const el = current()
+  if (!started || muted) return
+  fadeElTo(el, effectiveTarget(), ms)
+}
+
+/** Lower the bed a little while narration reads (factor 1 = normal). Survives page-turn unducks. */
+export function setNarrationDuck(factor: number, ms = 700) {
+  narrationDuck = Math.min(1, Math.max(0, factor))
   const el = current()
   if (!started || muted) return
   fadeElTo(el, effectiveTarget(), ms)
